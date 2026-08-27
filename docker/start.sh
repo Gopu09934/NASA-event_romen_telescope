@@ -104,26 +104,26 @@ TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://eol.jsc.nasa.gov/esrs/hdev/media
 ENABLE_BUMPER=false
 BUMPER_DURATION=5   # seconds
 BUMPER_MESSAGES=(
-    "Explore breathtaking nebulae where new stars are born.",
-    "Discover distant galaxies across the depths of deep space.",
-    "Journey through the universe with stunning JWST imagery.",
-    "Witness ancient galaxies shining across billions of years.",
-    "Explore mysterious black holes hidden across deep space.",
-    "Discover brilliant stars forming inside distant nebulae.",
-    "Journey beyond our galaxy into the vast universe.",
-    "Explore cosmic wonders captured across the distant universe.",
-    "Discover distant stars hidden within beautiful nebulae.",
-    "Witness the incredible beauty of deep space in 4K.",
-    "Explore galaxies billions of light-years away from Earth.",
-    "Discover the mysteries hidden within the distant cosmos.",
-    "Journey through deep space and explore distant galaxies.",
-    "Witness stars being born inside massive cosmic clouds.",
-    "Explore the universe through powerful JWST observations.",
-    "Discover ancient light traveling across the cosmos.",
-    "Explore distant worlds hidden beyond our solar system.",
-    "Witness spectacular galaxies scattered across deep space.",
-    "Discover the incredible scale and beauty of our universe.",
-    "Continue exploring the universe with JWST deep-space views."
+    "Explore the universe with NASA's Nancy Grace Roman Space Telescope.",
+    "Discover distant galaxies across the vast cosmic web.",
+    "Journey through deep space with Roman's powerful surveys.",
+    "Explore the mysteries of dark energy shaping our universe.",
+    "Discover billions of distant stars across the Milky Way.",
+    "Search for new worlds beyond our solar system.",
+    "Explore distant galaxies and trace the history of cosmic evolution.",
+    "Uncover the hidden universe with Roman's wide-field vision.",
+    "Discover distant exoplanets through gravitational microlensing.",
+    "Explore the cosmos across billions of light-years.",
+    "Witness the universe on an enormous cosmic scale.",
+    "Discover ancient galaxies and the light they carry across time.",
+    "Explore the invisible forces driving the expansion of the universe.",
+    "Search the galaxy for distant worlds and planetary systems.",
+    "Discover how galaxies and cosmic structures evolve over time.",
+    "Explore dark energy, exoplanets, and the distant universe.",
+    "Journey across the cosmos with NASA's Roman Space Telescope.",
+    "Discover stars, galaxies, and worlds hidden across deep space.",
+    "Explore the cosmic history written across billions of years.",
+    "Uncover new mysteries of the universe with Roman."
 )
 
 #############################################
@@ -402,12 +402,12 @@ trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null |
 #############################################
 # Static panel text (unchanged across videos)
 #############################################
-printf 'ISS  LIVE'                                      > "$ASSET_DIR/title1.txt"
-printf 'E A R T H   F R O M   S P A C E'               > "$ASSET_DIR/title2.txt"
-printf 'L I V E   F R O M   O R B I T'                  > "$ASSET_DIR/header.txt"
-printf 'INTERNATIONAL SPACE STATION'                    > "$ASSET_DIR/eyebrow.txt"
-printf 'SUBSCRIBE for more space & science LIVE'        > "$ASSET_DIR/cta.txt"
-printf 'DID YOU KNOW?'                                  > "$ASSET_DIR/fact_label.txt"
+printf 'ROMAN  LIVE'                                      > "$ASSET_DIR/title1.txt"
+printf 'U N I V E R S E   E X P L O R A T I O N'         > "$ASSET_DIR/title2.txt"
+printf 'N A S A   R O M A N   S P A C E   T E L E S C O P E' > "$ASSET_DIR/header.txt"
+printf 'NANCY GRACE ROMAN SPACE TELESCOPE'                 > "$ASSET_DIR/eyebrow.txt"
+printf 'SUBSCRIBE for more space & science LIVE'           > "$ASSET_DIR/cta.txt"
+printf 'DID YOU KNOW?'                                     > "$ASSET_DIR/fact_label.txt"
 
 #############################################
 # Default headline / fact pools (used as a
@@ -415,54 +415,55 @@ printf 'DID YOU KNOW?'                                  > "$ASSET_DIR/fact_label
 # are missing or empty)
 #############################################
 DEFAULT_HEADLINES=(
-    "The International Space Station orbits Earth roughly every 90 minutes.",
-    "Astronauts aboard the ISS experience multiple sunrises and sunsets each day.",
-    "The ISS provides a unique view of Earth's atmosphere from hundreds of kilometers above the planet.",
-    "Earth's oceans, clouds and continents create constantly changing views from orbit.",
-    "The International Space Station is one of humanity's largest laboratories in space.",
-    "Astronauts conduct scientific experiments aboard the ISS that cannot be performed the same way on Earth.",
-    "The ISS travels around Earth at thousands of kilometers per hour.",
-    "From orbit, Earth's thin blue atmosphere appears as a bright layer surrounding the planet.",
-    "The ISS allows scientists to study how humans, plants and materials behave in microgravity.",
-    "Night passes quickly for astronauts aboard the International Space Station.",
-    "City lights can become visible from orbit as the ISS passes over the night side of Earth.",
-    "Earth observation from the ISS helps scientists study weather, oceans and environmental changes.",
-    "The station's orbital laboratory has supported scientific research for decades.",
-    "Astronauts aboard the ISS can observe enormous storms developing across Earth's atmosphere.",
-    "Every orbit offers a different perspective of our changing planet."
+    "NASA's Nancy Grace Roman Space Telescope will investigate some of the universe's biggest mysteries.",
+    "Roman will help scientists study dark energy and understand how the universe is expanding.",
+    "The Roman Space Telescope is designed to survey enormous regions of the sky.",
+    "Roman will search for distant exoplanets and help reveal the diversity of worlds beyond our solar system.",
+    "Roman's wide-field vision will capture vast cosmic landscapes in remarkable detail.",
+    "The mission will study billions of galaxies to investigate how the universe has evolved.",
+    "Roman will help scientists map the distribution of galaxies and dark matter across cosmic time.",
+    "The telescope will investigate how dark energy has influenced the expansion of the universe.",
+    "Roman will use gravitational microlensing to search for planets far beyond our solar system.",
+    "The observatory will combine wide surveys with powerful infrared observations of the cosmos.",
+    "Roman will explore stellar populations and planetary systems throughout the Milky Way.",
+    "Scientists will use Roman's observations to investigate the history and structure of the universe.",
+    "The telescope's wide field of view will allow it to survey the sky much faster than many previous space telescopes.",
+    "Roman will help connect the study of distant galaxies with the evolution of the cosmic web.",
+    "Every Roman survey could reveal unexpected objects and new clues about our universe."
 )
 
 DEFAULT_FACTS=(
-    "The International Space Station orbits Earth at an altitude of roughly 400 kilometers.",
-    "The ISS travels around Earth at approximately 28,000 kilometers per hour.",
-    "The International Space Station completes an orbit of Earth roughly every 90 minutes.",
-    "Astronauts aboard the ISS can see around 15 or 16 sunrises and sunsets during a 24-hour period.",
-    "The ISS is one of the largest human-made structures ever assembled in space.",
-    "The International Space Station serves as a laboratory for scientific research in microgravity.",
-    "The ISS has been continuously inhabited by astronauts since November 2000.",
-    "Earth's atmosphere appears as a thin blue layer when viewed from orbit.",
-    "The ISS provides astronauts with a unique perspective of Earth's oceans, continents and weather systems.",
-    "Astronauts aboard the ISS experience microgravity rather than complete absence of gravity.",
-    "The station's solar arrays convert sunlight into electricity for its onboard systems.",
-    "The ISS can be visible from Earth as a bright moving point of light under suitable viewing conditions.",
-    "Astronauts use the ISS to study how the human body changes during long-duration spaceflight.",
-    "Experiments aboard the ISS help scientists understand how plants grow in microgravity.",
-    "The International Space Station has been assembled through hundreds of launches and spacewalks.",
-    "Earth observation from the ISS helps scientists monitor storms, wildfires, oceans and environmental changes.",
-    "Large thunderstorms can be observed from above as they develop across Earth's atmosphere.",
-    "The ISS passes over different parts of Earth during every orbit.",
-    "When the ISS enters Earth's shadow, astronauts experience orbital night until the station reaches sunlight again.",
-    "The station's Cupola provides astronauts with spectacular panoramic views of Earth and space.",
-    "The ISS is operated through international cooperation involving multiple space agencies.",
-    "Microgravity allows scientists to study physical processes that behave differently than they do on Earth.",
-    "Astronauts aboard the ISS communicate with mission control centers around the world.",
-    "The ISS travels fast enough to cross an entire country in only a few minutes.",
-    "Cloud patterns viewed from orbit can reveal the enormous scale of Earth's weather systems.",
-    "The blue color of Earth is strongly influenced by the way sunlight interacts with the atmosphere and oceans.",
-    "The ISS experiences extreme changes in temperature as it moves between sunlight and Earth's shadow.",
-    "Spacewalks allow astronauts to maintain equipment and perform construction or scientific tasks outside the station.",
-    "The International Space Station demonstrates how humans can build and operate complex laboratories in orbit.",
-    "Every ISS orbit provides a changing view of our planet as Earth rotates beneath the spacecraft."
+    "NASA's Nancy Grace Roman Space Telescope is designed to investigate dark energy, exoplanets and astrophysics.",
+    "Roman will have a field of view much larger than that of the Hubble Space Telescope.",
+    "Roman's wide-field instrument will allow scientists to survey enormous areas of the sky.",
+    "The telescope will observe the universe primarily in infrared and near-infrared wavelengths.",
+    "Roman will help scientists investigate why the expansion of the universe is accelerating.",
+    "Dark energy is one of the biggest mysteries in modern cosmology, and Roman is designed to study it.",
+    "Roman will create large surveys containing observations of billions of cosmic objects.",
+    "The telescope will study distant galaxies to investigate how the universe has evolved over billions of years.",
+    "Roman will use gravitational microlensing to search for planets beyond our solar system.",
+    "Microlensing can reveal planets that are difficult to detect using other planet-hunting techniques.",
+    "Roman could help discover thousands of exoplanets through its microlensing survey.",
+    "The telescope will investigate planetary systems throughout the Milky Way galaxy.",
+    "Roman will study how galaxies are distributed across the universe and how their structures have changed over time.",
+    "Scientists will use Roman observations to create detailed maps of dark matter across large regions of the cosmos.",
+    "Roman's observations will help scientists understand the relationship between dark matter and galaxies.",
+    "The telescope will search for distant supernovae that can be used to study cosmic expansion.",
+    "Roman will help measure how the universe has changed across different periods of cosmic history.",
+    "Its wide field of view allows Roman to survey large areas of the sky efficiently.",
+    "Roman is named after Nancy Grace Roman, a pioneering NASA astronomer known as the 'Mother of Hubble'.",
+    "Nancy Grace Roman played a major role in establishing NASA's space astronomy program.",
+    "Roman will complement other major observatories by providing wide-field infrared observations of the universe.",
+    "The telescope is designed to survey the sky rather than focus exclusively on individual cosmic objects.",
+    "Roman's surveys could reveal previously unknown galaxies, stars, exoplanets and other astronomical objects.",
+    "Infrared observations allow astronomers to study objects whose light is obscured or shifted toward longer wavelengths.",
+    "Roman will investigate stellar populations in our galaxy and help scientists understand how stars form and evolve.",
+    "The telescope will study millions of stars toward the center of the Milky Way during its exoplanet survey.",
+    "Roman will help scientists explore the population of planets beyond the solar system.",
+    "The mission will provide a powerful combination of wide-field imaging and precise astronomical measurements.",
+    "Roman's data will be valuable to astronomers studying both nearby stars and the distant universe.",
+    "One of Roman's major goals is to understand the fundamental physics behind the accelerating expansion of the universe.",
+    "Roman's enormous cosmic surveys could uncover discoveries that scientists do not yet know to look for."
 )
 #############################################
 # build_labels_chain: optional feature — draws
