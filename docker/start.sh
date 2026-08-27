@@ -241,6 +241,37 @@ fetch_grid_image "$TELESCOPE_IMAGE_URL" "$TELESCOPE_IMAGE" "Telescope"
 fetch_grid_image "$TRACKER_IMAGE_URL" "$TRACKER_IMAGE" "ISS Tracker"
 
 #############################################
+# Pre-resize each grid image ONCE at startup
+# to its target cell size. Without this, the
+# per-frame filter graph would re-run scale/crop
+# on the original source (which can be a huge
+# multi-megapixel NASA photo) 30 times a second,
+# which is catastrophically slow on a 2-core
+# runner and causes the stream to fall behind
+# real-time (rising "dup" count, speed << 1x,
+# eventual RTMP disconnect). The main filter
+# graph still applies scale+crop for safety, but
+# on an already-small image that's nearly free.
+#############################################
+resize_grid_image() {
+    local src="$1" dest="$2" w="$3" h="$4"
+    ffmpeg -y -i "$src" -vf "scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}" \
+        -frames:v 1 "$dest" -loglevel error
+    if [ ! -s "$dest" ]; then
+        echo "WARNING: failed to pre-resize $src — copying it unresized (may be slow)."
+        cp -f "$src" "$dest"
+    fi
+}
+
+LAUNCH_IMAGE_GRID="$ASSET_DIR/launch_grid.jpg"
+TELESCOPE_IMAGE_GRID="$ASSET_DIR/telescope_grid.jpg"
+TRACKER_IMAGE_GRID="$ASSET_DIR/tracker_grid.jpg"
+resize_grid_image "$LAUNCH_IMAGE" "$LAUNCH_IMAGE_GRID" "$CELL_W" "$CELL_H"
+resize_grid_image "$TELESCOPE_IMAGE" "$TELESCOPE_IMAGE_GRID" "$CELL_W2" "$CELL_H"
+resize_grid_image "$TRACKER_IMAGE" "$TRACKER_IMAGE_GRID" "$CELL_W2" "$CELL_H"
+echo "Pre-resized grid images to cell size (${CELL_W}x${CELL_H} / ${CELL_W2}x${CELL_H})."
+
+#############################################
 # Background clock writer (avoids fragile
 # drawtext %{gmtime} expansion syntax)
 #############################################
@@ -1075,9 +1106,9 @@ run_video() {
         -i "$url" \
         -loop 1 -i overlay.png \
         -loop 1 -i "$DOT_MARKER" \
-        -loop 1 -i "$LAUNCH_IMAGE" \
-        -loop 1 -i "$TELESCOPE_IMAGE" \
-        -loop 1 -i "$TRACKER_IMAGE" \
+        -loop 1 -i "$LAUNCH_IMAGE_GRID" \
+        -loop 1 -i "$TELESCOPE_IMAGE_GRID" \
+        -loop 1 -i "$TRACKER_IMAGE_GRID" \
         "${AUDIO_INPUT_ARGS[@]}" \
         -filter_complex "$filter" \
         -map "[final]" \
