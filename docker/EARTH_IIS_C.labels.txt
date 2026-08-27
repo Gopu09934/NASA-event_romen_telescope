@@ -1,0 +1,4 @@
+960,130,Robotic Arm
+1110,290,ISS Radiator
+1190,450,Earth Horizon
+1010,620,Atmosphere
