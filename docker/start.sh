@@ -26,6 +26,7 @@ echo "========================================"
 echo "Starting 24/7 YouTube Stream (Documentary Overlay)"
 echo "Output Resolution : 1280x720 (720p — sized for a 2-core CI runner)"
 echo "FPS               : 30"
+echo "SCRIPT VERSION    : grid-v3 (2x2 launch/telescope/iss/tracker + perf fixes)"
 echo "========================================"
 
 FONT="font.ttf"
@@ -401,7 +402,7 @@ trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null |
 #############################################
 # Static panel text (unchanged across videos)
 #############################################
-printf 'ISS  LIVE'                                      > "$ASSET_DIR/title1.txt"
+printf 'Romen  Telescope'                                      > "$ASSET_DIR/title1.txt"
 printf 'E A R T H   F R O M   S P A C E'               > "$ASSET_DIR/title2.txt"
 printf 'L I V E   F R O M   O R B I T'                  > "$ASSET_DIR/header.txt"
 printf 'INTERNATIONAL SPACE STATION'                    > "$ASSET_DIR/eyebrow.txt"
