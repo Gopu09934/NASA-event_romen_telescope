@@ -404,7 +404,7 @@ trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null |
 #############################################
 printf 'ROMAN  LIVE'                                      > "$ASSET_DIR/title1.txt"
 printf 'U N I V E R S E   E X P L O R A T I O N'         > "$ASSET_DIR/title2.txt"
-printf 'N A S A   R O M A N   S P A C E   T E L E S C O P E' > "$ASSET_DIR/header.txt"
+printf 'N A S A   R O M A N   T E L E S C O P E' > "$ASSET_DIR/header.txt"
 printf 'NANCY GRACE ROMAN SPACE TELESCOPE'                 > "$ASSET_DIR/eyebrow.txt"
 printf 'SUBSCRIBE for more space & science LIVE'           > "$ASSET_DIR/cta.txt"
 printf 'DID YOU KNOW?'                                     > "$ASSET_DIR/fact_label.txt"
