@@ -58,23 +58,27 @@ SUB_ICON_Y=677
 SUB_ICON_R=20
 
 #############################################
-# Full-screen 2x2 content grid (no side panel)
+# 2x2 content grid (right of the info panel)
 #
-#   +-----------------------+-----------------------+
-#   |     LAUNCH SITE        |     TELESCOPE +        |
-#   |     (LAUNCH_IMAGE)      |     COUNTDOWN           |
-#   +-----------------------+-----------------------+
-#   |     ISS LIVE VIDEO      |     ISS TRACKER        |
-#   |     (input 0)            |     (TRACKER_IMAGE)     |
-#   +-----------------------+-----------------------+
+#   +-------------------+-------------------+
+#   |   LAUNCH SITE      |   TELESCOPE +     |
+#   |   (LAUNCH_IMAGE)    |   COUNTDOWN       |
+#   +-------------------+-------------------+
+#   |   ISS LIVE VIDEO   |   ISS TRACKER     |
+#   |   (input 0)         |   (TRACKER_IMAGE)|
+#   +-------------------+-------------------+
 #
-# Four equal 640x360 cells covering the entire
-# 1280x720 frame.
+# The grid starts right where the info panel's
+# gold border ends (x=349) and fills the rest
+# of the 1280x720 frame in four equal-ish cells.
 #############################################
-CELL_W=640
+PANEL_RIGHT_EDGE=349
+GRID_W=$((1280 - PANEL_RIGHT_EDGE))
+CELL_W=$((GRID_W / 2))
+CELL_W2=$((GRID_W - CELL_W))
 CELL_H=360
-GRID_X=0
-GRID_X2=$CELL_W
+GRID_X=$PANEL_RIGHT_EDGE
+GRID_X2=$((GRID_X + CELL_W))
 
 # Countdown target for the launch cell (top-right), e.g.:
 #   LAUNCH_DATE="2026-08-30 06:20:00"
@@ -264,9 +268,9 @@ LAUNCH_IMAGE_GRID="$ASSET_DIR/launch_grid.jpg"
 TELESCOPE_IMAGE_GRID="$ASSET_DIR/telescope_grid.jpg"
 TRACKER_IMAGE_GRID="$ASSET_DIR/tracker_grid.jpg"
 resize_grid_image "$LAUNCH_IMAGE" "$LAUNCH_IMAGE_GRID" "$CELL_W" "$CELL_H"
-resize_grid_image "$TELESCOPE_IMAGE" "$TELESCOPE_IMAGE_GRID" "$CELL_W" "$CELL_H"
-resize_grid_image "$TRACKER_IMAGE" "$TRACKER_IMAGE_GRID" "$CELL_W" "$CELL_H"
-echo "Pre-resized grid images to cell size (${CELL_W}x${CELL_H})."
+resize_grid_image "$TELESCOPE_IMAGE" "$TELESCOPE_IMAGE_GRID" "$CELL_W2" "$CELL_H"
+resize_grid_image "$TRACKER_IMAGE" "$TRACKER_IMAGE_GRID" "$CELL_W2" "$CELL_H"
+echo "Pre-resized grid images to cell size (${CELL_W}x${CELL_H} / ${CELL_W2}x${CELL_H})."
 
 #############################################
 # Background clock writer (avoids fragile
@@ -468,32 +472,29 @@ DEFAULT_FACTS=(
 # optional per video: only activates if a file
 # named <basename>.labels.txt exists.
 #
-# Called as build_labels_chain "$url" "$input_node"
-# — draws onto the full-size (pre-scale) 1280x720
-# video frame, which is then shrunk into its grid
-# cell along with the labels already burned in, so
-# existing .labels.txt coordinate files (x,y in
-# 1280x720 space) keep working unchanged no matter
-# how big the ISS video's on-screen cell is.
-#
 # File format — one label per line, comma
 # separated:
 #   x,y,Label text here
 # where x,y is the pixel position on the
-# 1280x720 (pre-scale) video frame that the label
-# should point at. Box placement, connector line,
-# and edge-avoidance (flips below/left near frame
+# 1280x720 output frame that the label should
+# point at. Box placement, connector line, and
+# edge-avoidance (flips below/left near frame
 # edges) are computed automatically.
 #
-# Visual style: gold-ring/white marker dot (uses
-# the pre-rendered dot_marker.png), gold-tinted
+# Visual style matches the rest of the panel:
+# gold-ring/white marker dot (uses the
+# pre-rendered dot_marker.png), gold-tinted
 # connector line, and a label box with a gold
-# accent bar + thin gold outline.
+# accent bar + thin gold outline (same language
+# as the CTA box).
 #
 # Notes/limits:
 #  - Keep label text under ~28 characters — the
 #    box is a fixed width and does not
 #    reflow/resize to fit longer text.
+#  - Best used for points with x > ~370 so
+#    labels don't collide with the left info
+#    panel.
 #  - The connector is a right-angle line
 #    (vertical then horizontal), not a true
 #    diagonal — ffmpeg has no native diagonal
@@ -505,13 +506,12 @@ DEFAULT_FACTS=(
 #
 # Sets globals: LABELS_CHAIN (filter string to
 # append), LABELS_OUT (bracketed output label
-# to continue the chain from, e.g. "[vid_full]" if
+# to continue the chain from, e.g. "[base]" if
 # no labels file exists, or the last label's
 # output node otherwise).
 #############################################
 build_labels_chain() {
     local url="$1"
-    local input_node="$2"
     local base
     base="${url##*/}"
     base="${base%.*}"
@@ -528,7 +528,7 @@ build_labels_chain() {
     local i idx
 
     LABELS_CHAIN=""
-    LABELS_OUT="[${input_node}]"
+    LABELS_OUT="[base]"
 
     local labels_file="${base}.labels.txt"
     if [ ! -f "$labels_file" ]; then
@@ -575,7 +575,7 @@ build_labels_chain() {
     for ((i = 1; i <= n; i++)); do split_outs+="[dm${i}]"; done
     LABELS_CHAIN+="[2:v]split=${n}${split_outs};"
 
-    local prev="$input_node"
+    local prev="base"
     for ((i = 0; i < n; i++)); do
         idx=$((i + 1))
         local x="${xs[$i]}" y="${ys[$i]}" text="${texts[$i]}"
@@ -704,9 +704,6 @@ prepare_video_content() {
     # instead of advancing through the playlist.
     local i idx
 
-    # Headlines are only used to feed the bottom scrolling ticker now
-    # (the old left info panel with rotating headlines/facts is gone —
-    # the whole frame is the 2x2 grid instead).
     RAW_LINES=()
     if [ -f "${base}.headlines.txt" ]; then
         echo "Using curated headlines: ${base}.headlines.txt"
@@ -727,67 +724,177 @@ prepare_video_content() {
         done < <(printf '%s\n' "${pool[@]}" | shuf)
     fi
 
+    FACTS=()
+    if [ -f "${base}.facts.txt" ]; then
+        echo "Using curated facts: ${base}.facts.txt"
+        while IFS= read -r line; do
+            [ -n "$(echo "$line" | tr -d '[:space:]')" ] && FACTS+=("$line")
+        done < "${base}.facts.txt"
+    fi
+    if [ "${#FACTS[@]}" -eq 0 ]; then
+        local fpool=()
+        if [ -f "facts.txt" ]; then
+            while IFS= read -r line; do
+                [ -n "$(echo "$line" | tr -d '[:space:]')" ] && fpool+=("$line")
+            done < "facts.txt"
+        fi
+        [ "${#fpool[@]}" -eq 0 ] && fpool=("${DEFAULT_FACTS[@]}")
+        while IFS= read -r line; do
+            FACTS+=("$line")
+        done < <(printf '%s\n' "${fpool[@]}" | shuf)
+    fi
+
+    N=${#RAW_LINES[@]}
+    CYCLE=$((N * SLOT))
+    echo "This video: $N headline(s), rotation cycle ${CYCLE}s"
+
+    for i in "${!RAW_LINES[@]}"; do
+        idx=$((i + 1))
+        echo "${RAW_LINES[$i]}" | fold -s -w 25 > "$ASSET_DIR/headline${idx}.txt"
+    done
+
+    MAX_HEADLINE_LINES=1
+    for i in "${!RAW_LINES[@]}"; do
+        idx=$((i + 1))
+        lines=$(grep -c '' "$ASSET_DIR/headline${idx}.txt")
+        [ "$lines" -gt "$MAX_HEADLINE_LINES" ] && MAX_HEADLINE_LINES=$lines
+    done
+    echo "Longest headline wraps to $MAX_HEADLINE_LINES line(s)."
+
+    HEADLINE_Y=230
+    PROGRESS_Y=$((HEADLINE_Y + MAX_HEADLINE_LINES * HEADLINE_LINE_H + 40))
+    DOTS_Y=$((PROGRESS_Y + 20))
+    FACT_DIVIDER_Y=$((DOTS_Y + 40))
+    FACT_LABEL_Y=$((FACT_DIVIDER_Y + 14))
+    FACT_TEXT_Y=$((FACT_LABEL_Y + 20))
+
     TICKER_STRING=""
     for i in "${!RAW_LINES[@]}"; do
         TICKER_STRING+="${RAW_LINES[$i]}     •     "
     done
     printf '%s' "$TICKER_STRING" > "$ASSET_DIR/ticker.txt"
 
+    FACT_N=${#FACTS[@]}
+    FACT_CYCLE=$((FACT_N * FACT_SLOT))
+    for i in "${!FACTS[@]}"; do
+        idx=$((i + 1))
+        echo "${FACTS[$i]}" | fold -s -w 23 > "$ASSET_DIR/fact${idx}.txt"
+    done
+
     #########################################
     # Rebuild BASE_CHAIN for this video's content
     #########################################
-    # Full-screen 2x2 grid, no side panel:
+    # 2x2 content grid to the right of the info panel:
     #   top-left     = launch site image      (input 3, LAUNCH_IMAGE)
     #   top-right    = telescope image + countdown (input 4, TELESCOPE_IMAGE)
     #   bottom-left  = ISS live video          (input 0)
     #   bottom-right = ISS tracker image       (input 5, TRACKER_IMAGE)
     CHAIN="color=c=black:s=1280x720[canvas];"
-
-    # Scale/pad the ISS video to a full 1280x720 frame FIRST (same as
-    # the old full-screen design), draw any coordinate labels onto it
-    # at that native scale, THEN shrink the whole thing (video + labels
-    # together) down into its grid cell. This keeps existing
-    # .labels.txt coordinate files working unchanged, since the labels
-    # are still calibrated against a 1280x720 frame — they just end up
-    # proportionally smaller once the cell is shrunk, exactly like the
-    # video itself.
-    CHAIN+="[0:v]fps=30,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black[vid_full];"
-    build_labels_chain "$url" "vid_full"
-    CHAIN+="$LABELS_CHAIN"
-    CHAIN+="${LABELS_OUT}scale=${CELL_W}:${CELL_H}[q_iss];"
-
+    CHAIN+="[0:v]fps=30,scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_iss];"
     CHAIN+="[3:v]scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_launch];"
-    CHAIN+="[4:v]scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_telescope];"
-    CHAIN+="[5:v]scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_tracker];"
+    CHAIN+="[4:v]scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_telescope];"
+    CHAIN+="[5:v]scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_tracker];"
     CHAIN+="[canvas][q_launch]overlay=x=${GRID_X}:y=0[g1];"
     CHAIN+="[g1][q_telescope]overlay=x=${GRID_X2}:y=0[g2];"
     CHAIN+="[g2][q_iss]overlay=x=${GRID_X}:y=${CELL_H}[g3];"
     CHAIN+="[g3][q_tracker]overlay=x=${GRID_X2}:y=${CELL_H}[g4];"
     # thin dividers so the four cells read as a grid
-    CHAIN+="[g4]drawbox=x=0:y=$((CELL_H - 1)):w=1280:h=2:color=black@0.7:t=fill[g5];"
+    CHAIN+="[g4]drawbox=x=${GRID_X}:y=$((CELL_H - 1)):w=${GRID_W}:h=2:color=black@0.7:t=fill[g5];"
     CHAIN+="[g5]drawbox=x=$((GRID_X2 - 1)):y=0:w=2:h=720:color=black@0.7:t=fill[g6];"
-
-    # LIVE badge + clock, top-left corner (over the launch-site cell)
-    CHAIN+="[g6]drawbox=x=14:y=14:w=11:h=11:color=${RED}:t=fill:enable='lt(mod(t\,1)\,0.6)'[g7];"
-    CHAIN+="[g7]drawtext=fontfile=${FONT}:text='LIVE':fontcolor=white:fontsize=22:x=32:y=8:${SHADOW}[g8];"
-    CHAIN+="[g8]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/clock.txt:reload=1:fontcolor=${GOLD}:fontsize=13:x=14:y=36:${SHADOW}[g9];"
-
-    # Subscriber / viewer stats, top-right corner (over the telescope cell)
-    CHAIN+="[g9]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/subs.txt:reload=1:fontcolor=white@0.85:fontsize=13:x=1266-text_w:y=14:${SHADOW}[g10];"
-    CHAIN+="[g10]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/viewers.txt:reload=1:fontcolor=white@0.85:fontsize=13:x=1266-text_w:y=32:${SHADOW}[g11];"
-
-    # Lower-third captions identifying each cell, plus the launch countdown
-    CHAIN+="[g11]drawtext=fontfile=${FONT}:text='LAUNCH SITE \: NASA ROMAN SPACE TELESCOPE':fontcolor=white:fontsize=13:x=14:y=$((CELL_H - 26)):${SHADOW}[g12];"
-    CHAIN+="[g12]drawtext=fontfile=${FONT}:text='ROMAN SPACE TELESCOPE':fontcolor=white:fontsize=13:x=${GRID_X2}+14:y=$((CELL_H - 46)):${SHADOW}[g13];"
-    CHAIN+="[g13]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/countdown.txt:reload=1:fontcolor=${GOLD}:fontsize=20:x=${GRID_X2}+14:y=$((CELL_H - 26)):${SHADOW}[g14];"
-    CHAIN+="[g14]drawtext=fontfile=${FONT}:text='LIVE FROM ISS':fontcolor=white:fontsize=13:x=14:y=$((720 - 26)):${SHADOW}[g15];"
-    CHAIN+="[g15]drawtext=fontfile=${FONT}:text='ISS TRACKER':fontcolor=white:fontsize=13:x=${GRID_X2}+14:y=$((720 - 26)):${SHADOW}[g16];"
-
+    # small captions identifying each cell, plus the launch countdown
+    CHAIN+="[g6]drawtext=fontfile=${FONT}:text='LAUNCH SITE':fontcolor=white:fontsize=13:x=${GRID_X}+10:y=10:${SHADOW}[g7];"
+    CHAIN+="[g7]drawtext=fontfile=${FONT}:text='ROMAN SPACE TELESCOPE':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=10:${SHADOW}[g8];"
+    CHAIN+="[g8]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/countdown.txt:reload=1:fontcolor=${GOLD}:fontsize=20:x=${GRID_X2}+10:y=30:${SHADOW}[g9];"
+    CHAIN+="[g9]drawtext=fontfile=${FONT}:text='LIVE FROM ISS':fontcolor=white:fontsize=13:x=${GRID_X}+10:y=$((CELL_H + 10)):${SHADOW}[g10];"
+    CHAIN+="[g10]drawtext=fontfile=${FONT}:text='ISS TRACKER':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=$((CELL_H + 10)):${SHADOW}[g11];"
     CHAIN+="[1:v]scale=1280:720:flags=fast_bilinear[ovl];"
-    CHAIN+="[g16][ovl]overlay=0:0[base];"
+    CHAIN+="[g11][ovl]overlay=0:0[base];"
+
+    # Optional coordinate-based callout labels for this video, drawn onto
+    # the raw video before the panel/UI so the panel stays on top.
+    build_labels_chain "$url"
+    CHAIN+="$LABELS_CHAIN"
+
+    CHAIN+="${LABELS_OUT}drawbox=x=0:y=0:w=333:h=720:color=black@0.60:t=fill[p1];"
+    CHAIN+="[p1]drawbox=x=333:y=0:w=4:h=720:color=black@0.45:t=fill[p2];"
+    CHAIN+="[p2]drawbox=x=337:y=0:w=4:h=720:color=black@0.30:t=fill[p3];"
+    CHAIN+="[p3]drawbox=x=341:y=0:w=4:h=720:color=black@0.15:t=fill[p4];"
+    CHAIN+="[p4]drawbox=x=0:y=0:w=347:h=4:color=${GOLD}@0.9:t=fill[p5];"
+    CHAIN+="[p5]drawbox=x=345:y=0:w=2:h=720:color=${GOLD}@0.6:t=fill[p6];"
+
+    CHAIN+="[p6]drawbox=x=27:y=28:w=11:h=11:color=${RED}:t=fill:enable='lt(mod(t\,1)\,0.6)'[p7];"
+    CHAIN+="[p7]drawtext=fontfile=${FONT}:text='LIVE':fontcolor=white:fontsize=30:x=44:y=19[p8];"
+
+    CHAIN+="[p8]drawtext=fontfile=${FONT}:text='Credits\: NASA':fontcolor=white@0.85:fontsize=15:x=313-text_w:y=19[p9];"
+    CHAIN+="[p9]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/clock.txt:reload=1:fontcolor=${GOLD}:fontsize=14:x=313-text_w:y=39[p10];"
+    CHAIN+="[p10]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/subs.txt:reload=1:fontcolor=white@0.75:fontsize=13:x=313-text_w:y=57[p10b];"
+    CHAIN+="[p10b]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/viewers.txt:reload=1:fontcolor=white@0.75:fontsize=13:x=313-text_w:y=75[p10c];"
+
+    CHAIN+="[p10c]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/title1.txt:fontcolor=white:fontsize=23:x=33:y=95:${SHADOW}[p11];"
+    CHAIN+="[p11]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/title2.txt:fontcolor=white@0.85:fontsize=17:x=33:y=124:${SHADOW}[p12];"
+    CHAIN+="[p12]drawbox=x=33:y=155:w=280:h=2:color=white@0.3:t=fill[p13];"
+
+    CHAIN+="[p13]drawbox=x=33:y=171:w=8:h=8:color=${GOLD}:t=fill[p14];"
+    CHAIN+="[p14]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/header.txt:fontcolor=${GOLD}:fontsize=15:x=49:y=168[p15];"
+
+    CHAIN+="[p15]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/eyebrow.txt:fontcolor=${GOLD}@0.85:fontsize=12:x=33:y=210[p16];"
+
+    local prev="p16"
+    for i in "${!RAW_LINES[@]}"; do
+        idx=$((i + 1))
+        local start=$((i * SLOT))
+        local end=$((start + SLOT))
+        local nxt="h${idx}"
+        local ALPHA="if(between(mod(t\,${CYCLE})\,${start}\,${end})\,if(lt(mod(t\,${CYCLE})-${start}\,0.6)\,(mod(t\,${CYCLE})-${start})/0.6\,if(gt(mod(t\,${CYCLE})-${start}\,${SLOT}-0.6)\,(${end}-mod(t\,${CYCLE}))/0.6\,1))\,0)"
+        CHAIN+="[${prev}]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/headline${idx}.txt:fontcolor=white:fontsize=${HEADLINE_FONTSIZE}:line_spacing=${HEADLINE_LINE_SPACING}:x=33:y=${HEADLINE_Y}:alpha='${ALPHA}':enable='between(mod(t\,${CYCLE})\,${start}\,${end})':${SHADOW}[${nxt}];"
+        prev="$nxt"
+    done
+
+    CHAIN+="[${prev}]drawtext=fontfile=${FONT}:text='STORY PROGRESS':fontcolor=white@0.35:fontsize=9:x=33:y=$((PROGRESS_Y - 15))[pgcap];"
+    CHAIN+="[pgcap]drawbox=x=33:y=${PROGRESS_Y}:w=280:h=2:color=white@0.15:t=fill[pg1];"
+    CHAIN+="[pg1]drawbox=x=33:y=${PROGRESS_Y}:w='280*(mod(t\,${SLOT}))/${SLOT}':h=2:color=${GOLD}:t=fill[pg2];"
+    prev="pg2"
+
+    for i in "${!RAW_LINES[@]}"; do
+        idx=$((i + 1))
+        local x=$((33 + i * 17))
+        local nxt="db${idx}"
+        CHAIN+="[${prev}]drawbox=x=${x}:y=${DOTS_Y}:w=7:h=7:color=white@0.3:t=fill[${nxt}];"
+        prev="$nxt"
+    done
+
+    local last=$((N - 1))
+    for i in "${!RAW_LINES[@]}"; do
+        idx=$((i + 1))
+        local x=$((33 + i * 17))
+        local start=$((i * SLOT))
+        local end=$((start + SLOT))
+        local ENABLE="between(mod(t\,${CYCLE})\,${start}\,${end})"
+        if [ "$i" -eq "$last" ]; then
+            CHAIN+="[${prev}]drawbox=x=${x}:y=${DOTS_Y}:w=7:h=7:color=${GOLD}:t=fill:enable='${ENABLE}'[pdotend];"
+            prev="pdotend"
+        else
+            local nxt="da${idx}"
+            CHAIN+="[${prev}]drawbox=x=${x}:y=${DOTS_Y}:w=7:h=7:color=${GOLD}:t=fill:enable='${ENABLE}'[${nxt}];"
+            prev="$nxt"
+        fi
+    done
+
+    CHAIN+="[${prev}]drawbox=x=33:y=${FACT_DIVIDER_Y}:w=280:h=2:color=${GOLD}@0.4:t=fill[fp1];"
+    CHAIN+="[fp1]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/fact_label.txt:fontcolor=${GOLD}@0.85:fontsize=12:x=33:y=${FACT_LABEL_Y}[fp2];"
+    prev="fp2"
+    for i in "${!FACTS[@]}"; do
+        idx=$((i + 1))
+        local start=$((i * FACT_SLOT))
+        local end=$((start + FACT_SLOT))
+        local nxt="f${idx}"
+        local FALPHA="if(between(mod(t\,${FACT_CYCLE})\,${start}\,${end})\,if(lt(mod(t\,${FACT_CYCLE})-${start}\,0.6)\,(mod(t\,${FACT_CYCLE})-${start})/0.6\,if(gt(mod(t\,${FACT_CYCLE})-${start}\,${FACT_SLOT}-0.6)\,(${end}-mod(t\,${FACT_CYCLE}))/0.6\,1))\,0)"
+        CHAIN+="[${prev}]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/fact${idx}.txt:fontcolor=white@0.9:fontsize=16:line_spacing=7:x=33:y=${FACT_TEXT_Y}:alpha='${FALPHA}':enable='between(mod(t\,${FACT_CYCLE})\,${start}\,${end})'[${nxt}];"
+        prev="$nxt"
+    done
 
     BASE_CHAIN="$CHAIN"
-    FACT_END="base"
+    FACT_END="$prev"
 }
 
 #############################################
@@ -998,6 +1105,7 @@ run_video() {
         -reconnect_delay_max 5 \
         -re \
         -i "$url" \
+        -loop 1 -i overlay.png \
         -loop 1 -i "$DOT_MARKER" \
         -loop 1 -i "$LAUNCH_IMAGE_GRID" \
         -loop 1 -i "$TELESCOPE_IMAGE_GRID" \
