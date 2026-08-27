@@ -789,7 +789,7 @@ prepare_video_content() {
     #   bottom-left  = ISS live video          (input 0)
     #   bottom-right = ISS tracker image       (input 5, TRACKER_IMAGE)
     CHAIN="color=c=black:s=1280x720[canvas];"
-    CHAIN+="[0:v]scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_iss];"
+    CHAIN+="[0:v]fps=30,scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_iss];"
     CHAIN+="[3:v]scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_launch];"
     CHAIN+="[4:v]scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_telescope];"
     CHAIN+="[5:v]scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_tracker];"
@@ -845,7 +845,7 @@ prepare_video_content() {
         local end=$((start + SLOT))
         local nxt="h${idx}"
         local ALPHA="if(between(mod(t\,${CYCLE})\,${start}\,${end})\,if(lt(mod(t\,${CYCLE})-${start}\,0.6)\,(mod(t\,${CYCLE})-${start})/0.6\,if(gt(mod(t\,${CYCLE})-${start}\,${SLOT}-0.6)\,(${end}-mod(t\,${CYCLE}))/0.6\,1))\,0)"
-        CHAIN+="[${prev}]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/headline${idx}.txt:fontcolor=white:fontsize=${HEADLINE_FONTSIZE}:line_spacing=${HEADLINE_LINE_SPACING}:x=33:y=${HEADLINE_Y}:alpha='${ALPHA}':${SHADOW}[${nxt}];"
+        CHAIN+="[${prev}]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/headline${idx}.txt:fontcolor=white:fontsize=${HEADLINE_FONTSIZE}:line_spacing=${HEADLINE_LINE_SPACING}:x=33:y=${HEADLINE_Y}:alpha='${ALPHA}':enable='between(mod(t\,${CYCLE})\,${start}\,${end})':${SHADOW}[${nxt}];"
         prev="$nxt"
     done
 
@@ -888,7 +888,7 @@ prepare_video_content() {
         local end=$((start + FACT_SLOT))
         local nxt="f${idx}"
         local FALPHA="if(between(mod(t\,${FACT_CYCLE})\,${start}\,${end})\,if(lt(mod(t\,${FACT_CYCLE})-${start}\,0.6)\,(mod(t\,${FACT_CYCLE})-${start})/0.6\,if(gt(mod(t\,${FACT_CYCLE})-${start}\,${FACT_SLOT}-0.6)\,(${end}-mod(t\,${FACT_CYCLE}))/0.6\,1))\,0)"
-        CHAIN+="[${prev}]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/fact${idx}.txt:fontcolor=white@0.9:fontsize=16:line_spacing=7:x=33:y=${FACT_TEXT_Y}:alpha='${FALPHA}'[${nxt}];"
+        CHAIN+="[${prev}]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/fact${idx}.txt:fontcolor=white@0.9:fontsize=16:line_spacing=7:x=33:y=${FACT_TEXT_Y}:alpha='${FALPHA}':enable='between(mod(t\,${FACT_CYCLE})\,${start}\,${end})'[${nxt}];"
         prev="$nxt"
     done
 
