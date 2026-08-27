@@ -71,4 +71,9 @@ jobs:
             -e YOUTUBE_STREAM_KEY="${{ secrets.YOUTUBE_STREAM_KEY }}" \
             -e YOUTUBE_API_KEY="${{ secrets.YOUTUBE_API_KEY }}" \
             -e YOUTUBE_CHANNEL_ID="${{ secrets.YOUTUBE_CHANNEL_ID }}" \
+            -e LAUNCH_IMAGE_URL="${{ secrets.LAUNCH_IMAGE_URL }}" \
+            -e TELESCOPE_IMAGE_URL="${{ secrets.TELESCOPE_IMAGE_URL }}" \
+            -e YOUTUBE_CHANNEL_ID="${{ secrets.TRACKER_IMAGE_URL }}" \
+            -e LAUNCH_DATE="${{ secrets.LAUNCH_DATE }}" \
+            
             "$IMAGE:latest"
