@@ -402,7 +402,7 @@ trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null |
 #############################################
 # Static panel text (unchanged across videos)
 #############################################
-printf 'Romen  Telescope'                                      > "$ASSET_DIR/title1.txt"
+printf 'romen  LIVE'                                      > "$ASSET_DIR/title1.txt"
 printf 'E A R T H   F R O M   S P A C E'               > "$ASSET_DIR/title2.txt"
 printf 'L I V E   F R O M   O R B I T'                  > "$ASSET_DIR/header.txt"
 printf 'INTERNATIONAL SPACE STATION'                    > "$ASSET_DIR/eyebrow.txt"
