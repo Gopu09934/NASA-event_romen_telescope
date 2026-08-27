@@ -998,7 +998,6 @@ run_video() {
         -reconnect_delay_max 5 \
         -re \
         -i "$url" \
-        -loop 1 -i overlay.png \
         -loop 1 -i "$DOT_MARKER" \
         -loop 1 -i "$LAUNCH_IMAGE_GRID" \
         -loop 1 -i "$TELESCOPE_IMAGE_GRID" \
