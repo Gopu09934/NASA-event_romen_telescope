@@ -900,7 +900,7 @@ build_final_filter() {
     local sub_ring_x=$((SUB_ICON_X - SUB_ICON_R))
     local sub_ring_y=$((SUB_ICON_Y - SUB_ICON_R))
     local sub_ring_d=$((SUB_ICON_R * 2))
-    tail+="[wm2]drawbox=x=${sub_ring_x}:y=${sub_ring_y}:w=${sub_ring_d}:h=${sub_ring_d}:color=${GOLD}@0.9:t=3:enable='${SUB_PULSE_ENABLE}'[wm2];"
+    tail+="[wm1]drawbox=x=${sub_ring_x}:y=${sub_ring_y}:w=${sub_ring_d}:h=${sub_ring_d}:color=${GOLD}@0.9:t=3:enable='${SUB_PULSE_ENABLE}'[wm2];"
 
     tail+="[wm2]drawbox=x=0:y=0:w=1280:h=720:color=black@0.5:t=2[final]"
 
