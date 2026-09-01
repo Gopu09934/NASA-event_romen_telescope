@@ -9,38 +9,25 @@ RUN apt-get update && \
         curl \
         ca-certificates \
         xvfb \
+        chromium \
         x11-utils \
         fonts-liberation \
         fonts-noto \
         python3 \
         python3-pip \
         nodejs \
-        npm \
-        chromium \
-        libnss3 \
-        libatk-bridge2.0-0 \
-        libgtk-3-0 \
-        libgbm1 \
-        libasound2 \
-        libxss1 \
-        libxshmfence1 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxrandr2 \
-        libxkbcommon0 && \
+        npm && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY . .
 
+# Install Playwright Node package
 RUN npm init -y && \
     npm install playwright
 
-# Install Playwright browser WITHOUT --with-deps
-RUN npx playwright install chromium
-
-# Verify Node + Playwright
+# Verify Node + npm + Playwright
 RUN node --version && \
     npm --version && \
     node -e "console.log(require.resolve('playwright'))" && \
