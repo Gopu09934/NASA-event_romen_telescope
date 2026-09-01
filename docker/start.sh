@@ -26,7 +26,7 @@ echo "========================================"
 echo "Starting 24/7 YouTube Stream (Documentary Overlay)"
 echo "Output Resolution : 1280x720 (720p — sized for a 2-core CI runner)"
 echo "FPS               : 30"
-echo "SCRIPT VERSION    : grid-v4 (live NASA Eyes tracker capture)"
+echo "SCRIPT VERSION    : grid-v5 (live NASA Eyes tracker via x11grab)"
 echo "========================================"
 
 FONT="font.ttf"
@@ -102,24 +102,30 @@ TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://eol.jsc.nasa.gov/esrs/hdev/media
 #############################################
 # LIVE Roman Space Telescope tracker (top-right
 # cell). eyes.nasa.gov is a WebGL/Three.js single
-# page app — there is no plain image URL for it,
-# so a headless browser renders the page and we
-# screenshot it periodically. Requires Playwright
-# + Chromium to be installed in the environment
-# BEFORE this script runs:
+# page app. Instead of periodic screenshots, a
+# headless Chromium is launched ONCE at startup
+# on a persistent virtual display (Xvfb) and left
+# running there for the whole stream — the scene
+# animates on its own, and ffmpeg captures that
+# display live via x11grab, the same way it
+# captures the ISS video feed on input 0.
 #
+# Requires (installed BEFORE this script runs):
+#   sudo apt-get install -y xvfb
 #   npm i playwright
 #   npx playwright install --with-deps chromium
 #
-# If ENABLE_LIVE_TRACKER is false, or the capture
-# fails, the cell falls back to a plain placeholder
-# image so the stream never crashes on a missing
-# input file.
+# If ENABLE_LIVE_TRACKER is false, or Xvfb/the
+# browser fail to come up, the cell falls back to
+# a plain placeholder image so the stream never
+# crashes on a missing input.
 #############################################
 ENABLE_LIVE_TRACKER="${ENABLE_LIVE_TRACKER:-true}"
 TRACKER_LIVE_URL="${TRACKER_LIVE_URL:-https://eyes.nasa.gov/apps/solar-system/#/sc_roman_space_telescope}"
-TRACKER_REFRESH_SECS="${TRACKER_REFRESH_SECS:-300}"   # 5 min default — headless capture is expensive on a 2-core runner
 TELESCOPE_IMAGE="${TELESCOPE_IMAGE:-telescope_live.png}"
+TRACKER_DISPLAY_NUM="${TRACKER_DISPLAY_NUM:-99}"
+TRACKER_DISPLAY=":${TRACKER_DISPLAY_NUM}"
+TRACKER_CAPTURE_FPS="${TRACKER_CAPTURE_FPS:-10}"   # scene moves slowly; keep CPU cost low
 
 #############################################
 # Up-next bumper (shown between videos)
@@ -260,50 +266,17 @@ fetch_grid_image() {
     fi
 }
 
-#############################################
-# capture_tracker_screenshot: renders the NASA
-# Eyes Roman Space Telescope tracker page with a
-# headless Chromium (via Playwright) and saves a
-# screenshot. Returns non-zero on any failure so
-# callers can fall back gracefully instead of
-# crashing the stream.
-#############################################
-capture_tracker_screenshot() {
-    local out="$1"
-    node -e "
-        const { chromium } = require('playwright');
-        (async () => {
-            const browser = await chromium.launch({ args: ['--no-sandbox'] });
-            const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
-            await page.goto('${TRACKER_LIVE_URL}', { waitUntil: 'networkidle', timeout: 45000 });
-            // Let the 3D scene finish loading/settling before capturing.
-            await page.waitForTimeout(5000);
-            await page.screenshot({ path: '${out}' });
-            await browser.close();
-        })().catch(e => { console.error(e); process.exit(1); });
-    "
-}
-
 fetch_grid_image "$LAUNCH_IMAGE_URL" "$LAUNCH_IMAGE" "Launch Site"
 fetch_grid_image "$TRACKER_IMAGE_URL" "$TRACKER_IMAGE" "ISS Tracker"
 
 #############################################
-# Initial telescope-tracker image: try one live
-# capture at startup so the very first video has
-# something real rather than a placeholder; if
-# live tracking is disabled or the capture fails,
-# fall back to a plain placeholder like the other
-# grid cells.
+# Static placeholder for the telescope cell —
+# used whenever the live browser capture isn't
+# available (Xvfb missing, browser failed to
+# start, or ENABLE_LIVE_TRACKER=false). Always
+# generated so ffmpeg has a valid fallback input
+# no matter what.
 #############################################
-if [ "$ENABLE_LIVE_TRACKER" = true ]; then
-    echo "Capturing initial live Roman Space Telescope tracker screenshot..."
-    if ! capture_tracker_screenshot "${ASSET_DIR}/telescope_live.png.tmp" 2>/dev/null || [ ! -s "${ASSET_DIR}/telescope_live.png.tmp" ]; then
-        echo "WARNING: initial live tracker capture failed — starting with a placeholder instead."
-        rm -f "${ASSET_DIR}/telescope_live.png.tmp"
-    else
-        mv -f "${ASSET_DIR}/telescope_live.png.tmp" "$TELESCOPE_IMAGE"
-    fi
-fi
 if [ ! -s "$TELESCOPE_IMAGE" ]; then
     ffmpeg -y -f lavfi -i "color=c=0x1a1a2e:s=640x480" \
         -vf "drawtext=fontfile=${FONT}:text='Roman Tracker':fontcolor=white@0.6:fontsize=28:x=(w-text_w)/2:y=(h-text_h)/2" \
@@ -322,6 +295,13 @@ fi
 # 1x, eventual RTMP disconnect). The main filter
 # graph still applies scale+crop for safety, but
 # on an already-small image that's nearly free.
+#
+# NOTE: -f mjpeg is required on the temp output
+# path below — without it, ffmpeg tries to infer
+# the muxer from the "${dest}.tmp" filename, sees
+# the ".tmp" extension, and fails with "Unable to
+# choose an output format" before ever resizing
+# anything.
 #############################################
 resize_grid_image() {
     local src="$1" dest="$2" w="$3" h="$4"
@@ -470,35 +450,103 @@ if [ "$SHOW_STATS" = true ]; then
 fi
 
 #############################################
-# Background live tracker screenshot writer.
-# Re-captures the NASA Eyes Roman Space Telescope
-# page every TRACKER_REFRESH_SECS and, on success,
-# atomically swaps in the new grid-resized image.
-# NOTE: because ffmpeg's -loop 1 image input is
-# read once at process start, this only takes
-# effect on the *next* video that starts streaming
-# (same limitation as editing files mid-video) —
-# it does not hot-update mid-video.
+# LIVE tracker: persistent Xvfb + Chromium.
+#
+# Instead of periodically screenshotting the
+# NASA Eyes page, we launch a headless browser
+# ONCE on a virtual display and leave it running
+# for the whole stream — the WebGL scene keeps
+# animating on its own. ffmpeg then captures that
+# virtual display continuously via x11grab in
+# run_video(), the same way it captures the ISS
+# feed on input 0. This gives an actual moving
+# video instead of a still image that updates
+# every few minutes.
+#
+# TRACKER_INPUT_ARGS is what gets spliced into
+# ffmpeg's input list for the telescope cell
+# (input index 4). It defaults to the static
+# placeholder and is only swapped to the live
+# x11grab feed if the browser comes up cleanly —
+# so the stream never crashes on a bad capture.
 #############################################
-TRACKER_LIVE_PID=""
+XVFB_PID=""
+TRACKER_BROWSER_PID=""
+LIVE_TRACKER_READY=false
+TRACKER_INPUT_ARGS=(-loop 1 -i "$TELESCOPE_IMAGE_GRID")
+
+start_live_tracker_browser() {
+    echo "Starting virtual display for live Roman tracker capture (${TRACKER_DISPLAY}, ${CELL_W2}x${CELL_H})..."
+    if ! command -v Xvfb >/dev/null 2>&1; then
+        echo "WARNING: Xvfb not installed — live tracker capture disabled, using static placeholder instead."
+        return 1
+    fi
+
+    Xvfb "$TRACKER_DISPLAY" -screen 0 "${CELL_W2}x${CELL_H}x24" -nolisten tcp >/tmp/xvfb.log 2>&1 &
+    XVFB_PID=$!
+    sleep 1
+    if ! kill -0 "$XVFB_PID" 2>/dev/null; then
+        echo "WARNING: Xvfb failed to start — live tracker capture disabled, using static placeholder instead."
+        cat /tmp/xvfb.log 2>/dev/null || true
+        return 1
+    fi
+
+    DISPLAY="$TRACKER_DISPLAY" node -e "
+        const { chromium } = require('playwright');
+        (async () => {
+            const browser = await chromium.launch({
+                headless: false,
+                args: [
+                    '--no-sandbox',
+                    '--window-position=0,0',
+                    '--window-size=${CELL_W2},${CELL_H}',
+                    '--kiosk',
+                    '--no-first-run',
+                    '--disable-infobars',
+                    // software WebGL fallback — Xvfb has no real GPU, and
+                    // eyes.nasa.gov is a WebGL/Three.js app that needs GL
+                    '--use-gl=angle',
+                    '--use-angle=swiftshader',
+                    '--enable-unsafe-swiftshader',
+                    '--ignore-gpu-blocklist'
+                ]
+            });
+            const page = await browser.newPage({ viewport: { width: ${CELL_W2}, height: ${CELL_H} } });
+            await page.goto('${TRACKER_LIVE_URL}', { waitUntil: 'networkidle', timeout: 60000 });
+            await page.waitForTimeout(5000);
+            console.log('READY');
+            // keep this process (and the browser) alive for the stream's life
+            await new Promise(() => {});
+        })().catch(e => { console.error(e); process.exit(1); });
+    " >/tmp/tracker_browser.log 2>&1 &
+    TRACKER_BROWSER_PID=$!
+
+    local waited=0
+    while [ "$waited" -lt 60 ]; do
+        if grep -q READY /tmp/tracker_browser.log 2>/dev/null; then
+            echo "Live Roman tracker browser is up and rendering."
+            LIVE_TRACKER_READY=true
+            return 0
+        fi
+        if ! kill -0 "$TRACKER_BROWSER_PID" 2>/dev/null; then
+            echo "WARNING: tracker browser exited early — falling back to static placeholder. Log:"
+            cat /tmp/tracker_browser.log 2>/dev/null || true
+            return 1
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    echo "WARNING: tracker browser didn't become ready in time — falling back to static placeholder."
+    return 1
+}
+
 if [ "$ENABLE_LIVE_TRACKER" = true ]; then
-    (
-        while true; do
-            sleep "$TRACKER_REFRESH_SECS"
-            if capture_tracker_screenshot "${ASSET_DIR}/telescope_live.png.tmp" 2>/dev/null && [ -s "${ASSET_DIR}/telescope_live.png.tmp" ]; then
-                mv -f "${ASSET_DIR}/telescope_live.png.tmp" "$TELESCOPE_IMAGE"
-                resize_grid_image "$TELESCOPE_IMAGE" "$TELESCOPE_IMAGE_GRID" "$CELL_W2" "$CELL_H"
-                echo "Refreshed live Roman Space Telescope tracker screenshot."
-            else
-                echo "WARNING: live tracker screenshot capture failed — keeping previous image."
-                rm -f "${ASSET_DIR}/telescope_live.png.tmp"
-            fi
-        done
-    ) &
-    TRACKER_LIVE_PID=$!
+    if start_live_tracker_browser; then
+        TRACKER_INPUT_ARGS=(-f x11grab -draw_mouse 0 -video_size "${CELL_W2}x${CELL_H}" -framerate "$TRACKER_CAPTURE_FPS" -i "${TRACKER_DISPLAY}+0,0")
+    fi
 fi
 
-trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null || true; [ -n "$SUBS_PID" ] && kill "$SUBS_PID" 2>/dev/null || true; [ -n "$VIEWERS_PID" ] && kill "$VIEWERS_PID" 2>/dev/null || true; [ -n "$TRACKER_LIVE_PID" ] && kill "$TRACKER_LIVE_PID" 2>/dev/null || true' EXIT
+trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null || true; [ -n "$SUBS_PID" ] && kill "$SUBS_PID" 2>/dev/null || true; [ -n "$VIEWERS_PID" ] && kill "$VIEWERS_PID" 2>/dev/null || true; [ -n "$TRACKER_BROWSER_PID" ] && kill "$TRACKER_BROWSER_PID" 2>/dev/null || true; [ -n "$XVFB_PID" ] && kill "$XVFB_PID" 2>/dev/null || true' EXIT
 
 #############################################
 # Static panel text (unchanged across videos)
@@ -888,13 +936,13 @@ prepare_video_content() {
     #########################################
     # 2x2 content grid to the right of the info panel:
     #   top-left     = launch site image        (input 3, LAUNCH_IMAGE)
-    #   top-right    = LIVE Roman tracker + countdown (input 4, TELESCOPE_IMAGE)
+    #   top-right    = LIVE Roman tracker + countdown (input 4, live x11grab or placeholder)
     #   bottom-left  = ISS live video             (input 0)
     #   bottom-right = ISS tracker image          (input 5, TRACKER_IMAGE)
     CHAIN="color=c=black:s=1280x720[canvas];"
     CHAIN+="[0:v]fps=30,scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_iss];"
     CHAIN+="[3:v]scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_launch];"
-    CHAIN+="[4:v]scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_telescope];"
+    CHAIN+="[4:v]fps=30,scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_telescope];"
     CHAIN+="[5:v]scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_tracker];"
     CHAIN+="[canvas][q_launch]overlay=x=${GRID_X}:y=0[g1];"
     CHAIN+="[g1][q_telescope]overlay=x=${GRID_X2}:y=0[g2];"
@@ -1186,7 +1234,8 @@ run_video() {
     # audio as the stream's audio track. Without AUDIO_URL, behavior is
     # unchanged (video's own audio, if any).
     # Input order in run_video(): 0=video 1=overlay.png 2=dot_marker
-    # 3=LAUNCH_IMAGE 4=TELESCOPE_IMAGE(live tracker) 5=TRACKER_IMAGE [6=audio playlist]
+    # 3=LAUNCH_IMAGE 4=TELESCOPE (live x11grab feed, or static placeholder
+    # if the live browser wasn't available) 5=TRACKER_IMAGE [6=audio playlist]
     local audio_map="0:a?"
     if [ "$ENABLE_AUDIO" = true ]; then
         audio_map="6:a"
@@ -1210,7 +1259,7 @@ run_video() {
         -loop 1 -i overlay.png \
         -loop 1 -i "$DOT_MARKER" \
         -loop 1 -i "$LAUNCH_IMAGE_GRID" \
-        -loop 1 -i "$TELESCOPE_IMAGE_GRID" \
+        "${TRACKER_INPUT_ARGS[@]}" \
         -loop 1 -i "$TRACKER_IMAGE_GRID" \
         "${AUDIO_INPUT_ARGS[@]}" \
         -filter_complex "$filter" \
