@@ -26,7 +26,7 @@ echo "========================================"
 echo "Starting 24/7 YouTube Stream (Documentary Overlay)"
 echo "Output Resolution : 1280x720 (720p — sized for a 2-core CI runner)"
 echo "FPS               : 30"
-echo "SCRIPT VERSION    : grid-v3 (2x2 launch/telescope/iss/tracker + perf fixes)"
+echo "SCRIPT VERSION    : grid-v4 (live NASA Eyes tracker capture)"
 echo "========================================"
 
 FONT="font.ttf"
@@ -61,8 +61,8 @@ SUB_ICON_R=20
 # 2x2 content grid (right of the info panel)
 #
 #   +-------------------+-------------------+
-#   |   LAUNCH SITE      |   TELESCOPE +     |
-#   |   (LAUNCH_IMAGE)    |   COUNTDOWN       |
+#   |   LAUNCH SITE      |   TELESCOPE       |
+#   |   (LAUNCH_IMAGE)    |   LIVE TRACKER    |
 #   +-------------------+-------------------+
 #   |   ISS LIVE VIDEO   |   ISS TRACKER     |
 #   |   (input 0)         |   (TRACKER_IMAGE)|
@@ -86,17 +86,40 @@ GRID_X2=$((GRID_X + CELL_W))
 # "TBD" instead of breaking the stream.
 LAUNCH_DATE="${LAUNCH_DATE:-Aug 30, 2026 11:26 UTC}"
 
-# Static images for the launch-site / telescope / tracker cells. Each
-# can be a local file already sitting next to this script, or a URL to
-# download once at startup (set the matching *_URL var). If neither is
-# usable, a plain placeholder image is generated so ffmpeg always has
-# a valid input and the stream never crashes on a missing file.
+# Static image for the launch-site cell. Can be a local file already
+# sitting next to this script, or a URL to download once at startup
+# (set the matching *_URL var). If neither is usable, a plain
+# placeholder image is generated so ffmpeg always has a valid input
+# and the stream never crashes on a missing file.
 LAUNCH_IMAGE="${LAUNCH_IMAGE:-launch.jpg}"
 LAUNCH_IMAGE_URL="${LAUNCH_IMAGE_URL:-https://www.nasa.gov/wp-content/uploads/2026/08/ksc-20260825-ph-ser01-0001orig.jpg}"
-TELESCOPE_IMAGE="${TELESCOPE_IMAGE:-telescope.jpg}"
-TELESCOPE_IMAGE_URL="${TELESCOPE_IMAGE_URL:-https://assets.science.nasa.gov/dynamicimage/assets/science/missions/rst/spacecraft-illustrations/Roman_BeautyPass2026-med.png}"
+
+# ISS tracker cell (bottom-right) — unchanged, still a static/periodic
+# image fetch, not the live browser capture.
 TRACKER_IMAGE="${TRACKER_IMAGE:-tracker.jpg}"
 TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://eol.jsc.nasa.gov/esrs/hdev/media/EHDC6Location.jpg}"
+
+#############################################
+# LIVE Roman Space Telescope tracker (top-right
+# cell). eyes.nasa.gov is a WebGL/Three.js single
+# page app — there is no plain image URL for it,
+# so a headless browser renders the page and we
+# screenshot it periodically. Requires Playwright
+# + Chromium to be installed in the environment
+# BEFORE this script runs:
+#
+#   npm i playwright
+#   npx playwright install --with-deps chromium
+#
+# If ENABLE_LIVE_TRACKER is false, or the capture
+# fails, the cell falls back to a plain placeholder
+# image so the stream never crashes on a missing
+# input file.
+#############################################
+ENABLE_LIVE_TRACKER="${ENABLE_LIVE_TRACKER:-true}"
+TRACKER_LIVE_URL="${TRACKER_LIVE_URL:-https://eyes.nasa.gov/apps/solar-system/#/sc_roman_space_telescope}"
+TRACKER_REFRESH_SECS="${TRACKER_REFRESH_SECS:-300}"   # 5 min default — headless capture is expensive on a 2-core runner
+TELESCOPE_IMAGE="${TELESCOPE_IMAGE:-telescope_live.png}"
 
 #############################################
 # Up-next bumper (shown between videos)
@@ -237,30 +260,79 @@ fetch_grid_image() {
     fi
 }
 
+#############################################
+# capture_tracker_screenshot: renders the NASA
+# Eyes Roman Space Telescope tracker page with a
+# headless Chromium (via Playwright) and saves a
+# screenshot. Returns non-zero on any failure so
+# callers can fall back gracefully instead of
+# crashing the stream.
+#############################################
+capture_tracker_screenshot() {
+    local out="$1"
+    node -e "
+        const { chromium } = require('playwright');
+        (async () => {
+            const browser = await chromium.launch({ args: ['--no-sandbox'] });
+            const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
+            await page.goto('${TRACKER_LIVE_URL}', { waitUntil: 'networkidle', timeout: 45000 });
+            // Let the 3D scene finish loading/settling before capturing.
+            await page.waitForTimeout(5000);
+            await page.screenshot({ path: '${out}' });
+            await browser.close();
+        })().catch(e => { console.error(e); process.exit(1); });
+    "
+}
+
 fetch_grid_image "$LAUNCH_IMAGE_URL" "$LAUNCH_IMAGE" "Launch Site"
-fetch_grid_image "$TELESCOPE_IMAGE_URL" "$TELESCOPE_IMAGE" "Telescope"
 fetch_grid_image "$TRACKER_IMAGE_URL" "$TRACKER_IMAGE" "ISS Tracker"
+
+#############################################
+# Initial telescope-tracker image: try one live
+# capture at startup so the very first video has
+# something real rather than a placeholder; if
+# live tracking is disabled or the capture fails,
+# fall back to a plain placeholder like the other
+# grid cells.
+#############################################
+if [ "$ENABLE_LIVE_TRACKER" = true ]; then
+    echo "Capturing initial live Roman Space Telescope tracker screenshot..."
+    if ! capture_tracker_screenshot "${ASSET_DIR}/telescope_live.png.tmp" 2>/dev/null || [ ! -s "${ASSET_DIR}/telescope_live.png.tmp" ]; then
+        echo "WARNING: initial live tracker capture failed — starting with a placeholder instead."
+        rm -f "${ASSET_DIR}/telescope_live.png.tmp"
+    else
+        mv -f "${ASSET_DIR}/telescope_live.png.tmp" "$TELESCOPE_IMAGE"
+    fi
+fi
+if [ ! -s "$TELESCOPE_IMAGE" ]; then
+    ffmpeg -y -f lavfi -i "color=c=0x1a1a2e:s=640x480" \
+        -vf "drawtext=fontfile=${FONT}:text='Roman Tracker':fontcolor=white@0.6:fontsize=28:x=(w-text_w)/2:y=(h-text_h)/2" \
+        -frames:v 1 "$TELESCOPE_IMAGE" -loglevel error
+fi
 
 #############################################
 # Pre-resize each grid image ONCE at startup
 # to its target cell size. Without this, the
 # per-frame filter graph would re-run scale/crop
 # on the original source (which can be a huge
-# multi-megapixel NASA photo) 30 times a second,
-# which is catastrophically slow on a 2-core
-# runner and causes the stream to fall behind
-# real-time (rising "dup" count, speed << 1x,
-# eventual RTMP disconnect). The main filter
+# multi-megapixel photo/screenshot) 30 times a
+# second, which is catastrophically slow on a
+# 2-core runner and causes the stream to fall
+# behind real-time (rising "dup" count, speed <<
+# 1x, eventual RTMP disconnect). The main filter
 # graph still applies scale+crop for safety, but
 # on an already-small image that's nearly free.
 #############################################
 resize_grid_image() {
     local src="$1" dest="$2" w="$3" h="$4"
     ffmpeg -y -i "$src" -vf "scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}" \
-        -frames:v 1 "$dest" -loglevel error
-    if [ ! -s "$dest" ]; then
-        echo "WARNING: failed to pre-resize $src — copying it unresized (may be slow)."
-        cp -f "$src" "$dest"
+        -frames:v 1 "${dest}.tmp" -loglevel error
+    if [ -s "${dest}.tmp" ]; then
+        mv -f "${dest}.tmp" "$dest"
+    else
+        echo "WARNING: failed to pre-resize $src — leaving previous $dest in place if any, else copying unresized."
+        rm -f "${dest}.tmp"
+        [ -s "$dest" ] || cp -f "$src" "$dest"
     fi
 }
 
@@ -288,7 +360,7 @@ CLOCK_PID=$!
 
 #############################################
 # Background countdown writer for the launch
-# cell (top-right of the grid). Recomputes the
+# cell (top-left of the grid). Recomputes the
 # remaining time every second from LAUNCH_DATE.
 #############################################
 printf 'TBD' > "$ASSET_DIR/countdown.txt"
@@ -397,7 +469,36 @@ if [ "$SHOW_STATS" = true ]; then
     VIEWERS_PID=$!
 fi
 
-trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null || true; [ -n "$SUBS_PID" ] && kill "$SUBS_PID" 2>/dev/null || true; [ -n "$VIEWERS_PID" ] && kill "$VIEWERS_PID" 2>/dev/null || true' EXIT
+#############################################
+# Background live tracker screenshot writer.
+# Re-captures the NASA Eyes Roman Space Telescope
+# page every TRACKER_REFRESH_SECS and, on success,
+# atomically swaps in the new grid-resized image.
+# NOTE: because ffmpeg's -loop 1 image input is
+# read once at process start, this only takes
+# effect on the *next* video that starts streaming
+# (same limitation as editing files mid-video) —
+# it does not hot-update mid-video.
+#############################################
+TRACKER_LIVE_PID=""
+if [ "$ENABLE_LIVE_TRACKER" = true ]; then
+    (
+        while true; do
+            sleep "$TRACKER_REFRESH_SECS"
+            if capture_tracker_screenshot "${ASSET_DIR}/telescope_live.png.tmp" 2>/dev/null && [ -s "${ASSET_DIR}/telescope_live.png.tmp" ]; then
+                mv -f "${ASSET_DIR}/telescope_live.png.tmp" "$TELESCOPE_IMAGE"
+                resize_grid_image "$TELESCOPE_IMAGE" "$TELESCOPE_IMAGE_GRID" "$CELL_W2" "$CELL_H"
+                echo "Refreshed live Roman Space Telescope tracker screenshot."
+            else
+                echo "WARNING: live tracker screenshot capture failed — keeping previous image."
+                rm -f "${ASSET_DIR}/telescope_live.png.tmp"
+            fi
+        done
+    ) &
+    TRACKER_LIVE_PID=$!
+fi
+
+trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null || true; [ -n "$SUBS_PID" ] && kill "$SUBS_PID" 2>/dev/null || true; [ -n "$VIEWERS_PID" ] && kill "$VIEWERS_PID" 2>/dev/null || true; [ -n "$TRACKER_LIVE_PID" ] && kill "$TRACKER_LIVE_PID" 2>/dev/null || true' EXIT
 
 #############################################
 # Static panel text (unchanged across videos)
@@ -786,10 +887,10 @@ prepare_video_content() {
     # Rebuild BASE_CHAIN for this video's content
     #########################################
     # 2x2 content grid to the right of the info panel:
-    #   top-left     = launch site image      (input 3, LAUNCH_IMAGE)
-    #   top-right    = telescope image + countdown (input 4, TELESCOPE_IMAGE)
-    #   bottom-left  = ISS live video          (input 0)
-    #   bottom-right = ISS tracker image       (input 5, TRACKER_IMAGE)
+    #   top-left     = launch site image        (input 3, LAUNCH_IMAGE)
+    #   top-right    = LIVE Roman tracker + countdown (input 4, TELESCOPE_IMAGE)
+    #   bottom-left  = ISS live video             (input 0)
+    #   bottom-right = ISS tracker image          (input 5, TRACKER_IMAGE)
     CHAIN="color=c=black:s=1280x720[canvas];"
     CHAIN+="[0:v]fps=30,scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_iss];"
     CHAIN+="[3:v]scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_launch];"
@@ -804,7 +905,7 @@ prepare_video_content() {
     CHAIN+="[g5]drawbox=x=$((GRID_X2 - 1)):y=0:w=2:h=720:color=black@0.7:t=fill[g6];"
     # small captions identifying each cell, plus the launch countdown
     CHAIN+="[g6]drawtext=fontfile=${FONT}:text='LAUNCH SITE':fontcolor=white:fontsize=13:x=${GRID_X}+10:y=10:${SHADOW}[g7];"
-    CHAIN+="[g7]drawtext=fontfile=${FONT}:text='ROMAN SPACE TELESCOPE':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=10:${SHADOW}[g8];"
+    CHAIN+="[g7]drawtext=fontfile=${FONT}:text='ROMAN TRACKER · LIVE':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=10:${SHADOW}[g8];"
     CHAIN+="[g8]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/countdown.txt:reload=1:fontcolor=${GOLD}:fontsize=20:x=${GRID_X2}+10:y=30:${SHADOW}[g9];"
     CHAIN+="[g9]drawtext=fontfile=${FONT}:text='LIVE FROM ISS':fontcolor=white:fontsize=13:x=${GRID_X}+10:y=$((CELL_H + 10)):${SHADOW}[g10];"
     CHAIN+="[g10]drawtext=fontfile=${FONT}:text='ISS TRACKER':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=$((CELL_H + 10)):${SHADOW}[g11];"
@@ -1085,7 +1186,7 @@ run_video() {
     # audio as the stream's audio track. Without AUDIO_URL, behavior is
     # unchanged (video's own audio, if any).
     # Input order in run_video(): 0=video 1=overlay.png 2=dot_marker
-    # 3=LAUNCH_IMAGE 4=TELESCOPE_IMAGE 5=TRACKER_IMAGE [6=audio playlist]
+    # 3=LAUNCH_IMAGE 4=TELESCOPE_IMAGE(live tracker) 5=TRACKER_IMAGE [6=audio playlist]
     local audio_map="0:a?"
     if [ "$ENABLE_AUDIO" = true ]; then
         audio_map="6:a"
