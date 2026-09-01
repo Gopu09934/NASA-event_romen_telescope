@@ -9,7 +9,6 @@ RUN apt-get update && \
         curl \
         ca-certificates \
         xvfb \
-        chromium \
         x11-utils \
         fonts-liberation \
         fonts-noto \
@@ -22,6 +21,15 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY . .
+
+RUN npm init -y
+RUN npm install playwright
+RUN npx playwright install --with-deps chromium
+
+# HARD verification
+RUN node -e "console.log('Node:', process.version)"
+RUN node -e "console.log('Playwright:', require.resolve('playwright'))"
+RUN node -e "require('playwright'); console.log('PLAYWRIGHT OK')"
 
 RUN chmod +x start.sh
 
