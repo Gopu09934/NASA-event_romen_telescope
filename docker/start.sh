@@ -326,7 +326,7 @@ fi
 resize_grid_image() {
     local src="$1" dest="$2" w="$3" h="$4"
     ffmpeg -y -i "$src" -vf "scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}" \
-        -frames:v 1 "${dest}.tmp" -loglevel error
+        -frames:v 1 -f mjpeg "${dest}.tmp" -loglevel error
     if [ -s "${dest}.tmp" ]; then
         mv -f "${dest}.tmp" "$dest"
     else
