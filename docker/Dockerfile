@@ -16,20 +16,13 @@ RUN apt-get update && \
         python3 \
         python3-pip \
         wget \
-        unzip \
-        libnss3 \
-        libatk-bridge2.0-0 \
-        libgtk-3-0 \
-        libgbm1 \
-        libasound2t64 \
-        libxss1 \
-        libxshmfence1 \
-        libxrandr2 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxfixes3 \
-        libxkbcommon0 \
-        libdrm2 && \
+        gnupg && \
+    rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 for GitHub Actions / tracker browser
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get update && \
+    apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -37,5 +30,11 @@ WORKDIR /app
 COPY . .
 
 RUN chmod +x start.sh
+
+# Verify required software during Docker build
+RUN node --version && \
+    npm --version && \
+    chromium --version && \
+    Xvfb -version
 
 CMD ["./start.sh"]
