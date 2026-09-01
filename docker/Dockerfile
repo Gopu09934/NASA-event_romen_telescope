@@ -1,19 +1,27 @@
 FROM ubuntu:24.04
+
 ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
+
 RUN apt-get update && \
     apt-get install -y \
         ffmpeg \
         curl \
-        ca-certificates && \
+        ca-certificates \
+        xvfb \
+        chromium \
+        x11-utils \
+        fonts-liberation \
+        fonts-noto \
+        python3 \
+        python3-pip && \
     rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy the entire build context instead of naming files one by one.
-# This automatically picks up everything the script can use — start.sh,
-# overlay.png, font.ttf, galaxy_info.txt, facts.txt, and any per-video
-# *.labels.txt / *.headlines.txt / *.facts.txt files — without needing
-# a Dockerfile edit every time you add a new one.
+# Copy everything needed by the streaming script
 COPY . .
 
 RUN chmod +x start.sh
+
 CMD ["./start.sh"]
