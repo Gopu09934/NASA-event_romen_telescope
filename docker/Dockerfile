@@ -15,27 +15,27 @@ RUN apt-get update && \
         fonts-noto \
         python3 \
         python3-pip \
-        nodejs \
-        npm && \
+        wget \
+        unzip \
+        libnss3 \
+        libatk-bridge2.0-0 \
+        libgtk-3-0 \
+        libgbm1 \
+        libasound2t64 \
+        libxss1 \
+        libxshmfence1 \
+        libxrandr2 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxkbcommon0 \
+        libdrm2 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy everything needed by the streaming script
 COPY . .
 
-# Install Playwright
-RUN npm install playwright
-
-# Install Playwright's Chromium dependencies/browser
-RUN npx playwright install --with-deps chromium
-
 RUN chmod +x start.sh
-
-# Verify everything before starting the stream
-RUN node --version && \
-    npm --version && \
-    node -e "require('playwright'); console.log('Playwright OK')" && \
-    npx playwright --version
 
 CMD ["./start.sh"]
