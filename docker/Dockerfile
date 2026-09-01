@@ -15,21 +15,36 @@ RUN apt-get update && \
         python3 \
         python3-pip \
         nodejs \
-        npm && \
+        npm \
+        chromium \
+        libnss3 \
+        libatk-bridge2.0-0 \
+        libgtk-3-0 \
+        libgbm1 \
+        libasound2 \
+        libxss1 \
+        libxshmfence1 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxrandr2 \
+        libxkbcommon0 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY . .
 
-RUN npm init -y
-RUN npm install playwright
-RUN npx playwright install --with-deps chromium
+RUN npm init -y && \
+    npm install playwright
 
-# HARD verification
-RUN node -e "console.log('Node:', process.version)"
-RUN node -e "console.log('Playwright:', require.resolve('playwright'))"
-RUN node -e "require('playwright'); console.log('PLAYWRIGHT OK')"
+# Install Playwright browser WITHOUT --with-deps
+RUN npx playwright install chromium
+
+# Verify Node + Playwright
+RUN node --version && \
+    npm --version && \
+    node -e "console.log(require.resolve('playwright'))" && \
+    node -e "require('playwright'); console.log('PLAYWRIGHT OK')"
 
 RUN chmod +x start.sh
 
