@@ -92,11 +92,11 @@ LAUNCH_DATE="${LAUNCH_DATE:-Aug 30, 2026 11:26 UTC}"
 # usable, a plain placeholder image is generated so ffmpeg always has
 # a valid input and the stream never crashes on a missing file.
 LAUNCH_IMAGE="${LAUNCH_IMAGE:-launch.jpg}"
-LAUNCH_IMAGE_URL="${LAUNCH_IMAGE_URL:-https://www.nasa.gov/wp-content/uploads/2026/08/ksc-20260825-ph-ser01-0001orig.jpg}"
+LAUNCH_IMAGE_URL="${LAUNCH_IMAGE_URL:-https://images-assets.nasa.gov/image/NHQ20260830_admin_0002/NHQ20260830_admin_0002~large.jpg}"
 TELESCOPE_IMAGE="${TELESCOPE_IMAGE:-telescope.jpg}"
 TELESCOPE_IMAGE_URL="${TELESCOPE_IMAGE_URL:-https://assets.science.nasa.gov/dynamicimage/assets/science/missions/rst/spacecraft-illustrations/Roman_BeautyPass2026-med.png}"
 TRACKER_IMAGE="${TRACKER_IMAGE:-tracker.jpg}"
-TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://eol.jsc.nasa.gov/esrs/hdev/media/EHDC6Location.jpg}"
+TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://assets.science.nasa.gov/dynamicimage/assets/science/missions/rst/spacecraft-illustrations/RST_Beauty_S2_4K_60_ProRes.00422_print.jpg}"
 
 #############################################
 # Up-next bumper (shown between videos)
