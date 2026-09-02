@@ -368,10 +368,55 @@ const { chromium } = require('playwright');
     try {
       const browser = await chromium.launch({
         headless: false,
-        args: ['--window-size=${CELL_W2},${CELL_H}', '--window-position=0,0', '--disable-gpu-sandbox']
+        args: [
+          // --kiosk removes Chromium's own tab strip / address bar so the
+          // captured frame is only the page content, not browser chrome.
+          '--kiosk',
+          '--window-size=${CELL_W2},${CELL_H}',
+          '--window-position=0,0',
+          '--noerrdialogs',
+          '--disable-infobars',
+          '--disable-session-crashed-bubble',
+          '--autoplay-policy=no-user-gesture-required',
+          // Eyes on the Solar System is a WebGL/Cesium/Three.js app. There
+          // is no real GPU under Xvfb, so Chromium needs to be told
+          // explicitly to render WebGL via software (SwiftShader) instead
+          // of silently falling back to a blank/black canvas.
+          '--use-gl=swiftshader',
+          '--enable-webgl',
+          '--ignore-gpu-blocklist',
+          '--enable-unsafe-swiftshader'
+        ]
       });
       const page = await browser.newPage({ viewport: { width: ${CELL_W2}, height: ${CELL_H} } });
-      await page.goto('${TRACKER_LIVE_URL}', { waitUntil: 'networkidle', timeout: 45000 });
+      await page.goto('${TRACKER_LIVE_URL}', { waitUntil: 'domcontentloaded', timeout: 45000 });
+
+      // This SPA's router can finish applying the URL hash after its own
+      // JS init, not on first load. Re-set the hash explicitly once the
+      // page has had a moment to settle, so a load race doesn't leave the
+      // capture stuck on the app's default browse/search sidebar instead
+      // of the actual spacecraft scene.
+      await page.waitForTimeout(4000);
+      await page.evaluate(() => {
+        window.location.hash = '#/sc_roman_space_telescope';
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      });
+
+      // Wait for the actual 3D canvas element rather than guessing a fixed
+      // delay — this is the real signal the scene has mounted.
+      await page.waitForSelector('canvas', { timeout: 30000 }).catch(() => {
+        console.error('WARNING: canvas never appeared — capturing whatever state exists.');
+      });
+
+      // Canvas existing != textures/model finished loading. Give the scene
+      // more time to actually paint before the capture side starts.
+      await page.waitForTimeout(8000);
+
+      // Debug aid: save what actually rendered so it can be inspected
+      // without waiting on the full video pipeline. Overwritten on every
+      // (re)launch, so it always reflects the current attempt.
+      await page.screenshot({ path: '${ASSET_DIR}/tracker_debug.png' }).catch(() => {});
+
       // keep the process (and browser window) alive; if the tab crashes
       // or the browser closes, fall through and relaunch.
       await new Promise((resolve) => { browser.on('disconnected', resolve); });
@@ -387,8 +432,12 @@ EOF
     DISPLAY="$TRACKER_DISPLAY" npx playwright node "$ASSET_DIR/tracker_launch.js" \
         > "$ASSET_DIR/tracker_chromium.log" 2>&1 &
     CHROMIUM_PID=$!
+    # Bumped from 12s: the launcher script above now does its own
+    # canvas-wait + settle time internally (roughly ~15-20s worst case),
+    # so give it enough headroom before the capture side starts grabbing
+    # frames, or the stream would start on a half-rendered scene anyway.
     echo "Waiting for the Eyes app to render before starting capture..."
-    sleep 12
+    sleep 25
 
     (
         while true; do
