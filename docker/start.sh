@@ -26,7 +26,7 @@ echo "========================================"
 echo "Starting 24/7 YouTube Stream (Documentary Overlay)"
 echo "Output Resolution : 1280x720 (720p — sized for a 2-core CI runner)"
 echo "FPS               : 30"
-echo "SCRIPT VERSION    : grid-v3 (2x2 launch/telescope/iss/tracker + perf fixes)"
+echo "SCRIPT VERSION    : grid-v4 (2x2 launch/telescope/iss/live-tracker + perf fixes)"
 echo "========================================"
 
 FONT="font.ttf"
@@ -64,8 +64,8 @@ SUB_ICON_R=20
 #   |   LAUNCH SITE      |   TELESCOPE +     |
 #   |   (LAUNCH_IMAGE)    |   COUNTDOWN       |
 #   +-------------------+-------------------+
-#   |   ISS LIVE VIDEO   |   ISS TRACKER     |
-#   |   (input 0)         |   (TRACKER_IMAGE)|
+#   |   ISS LIVE VIDEO   |   LIVE TRACKER    |
+#   |   (input 0)         |   (screen-capture)|
 #   +-------------------+-------------------+
 #
 # The grid starts right where the info panel's
@@ -86,17 +86,64 @@ GRID_X2=$((GRID_X + CELL_W))
 # "TBD" instead of breaking the stream.
 LAUNCH_DATE="${LAUNCH_DATE:-Aug 30, 2026 11:26 UTC}"
 
-# Static images for the launch-site / telescope / tracker cells. Each
-# can be a local file already sitting next to this script, or a URL to
-# download once at startup (set the matching *_URL var). If neither is
-# usable, a plain placeholder image is generated so ffmpeg always has
-# a valid input and the stream never crashes on a missing file.
+# Static images for the launch-site / telescope cells. Each can be a
+# local file already sitting next to this script, or a URL to download
+# once at startup (set the matching *_URL var). If neither is usable,
+# a plain placeholder image is generated so ffmpeg always has a valid
+# input and the stream never crashes on a missing file.
 LAUNCH_IMAGE="${LAUNCH_IMAGE:-launch.jpg}"
-LAUNCH_IMAGE_URL="${LAUNCH_IMAGE_URL:-https://images-assets.nasa.gov/image/NHQ20260830_admin_0002/NHQ20260830_admin_0002~large.jpg}"
+LAUNCH_IMAGE_URL="${LAUNCH_IMAGE_URL:-https://www.nasa.gov/wp-content/uploads/2026/08/ksc-20260825-ph-ser01-0001orig.jpg}"
 TELESCOPE_IMAGE="${TELESCOPE_IMAGE:-telescope.jpg}"
 TELESCOPE_IMAGE_URL="${TELESCOPE_IMAGE_URL:-https://assets.science.nasa.gov/dynamicimage/assets/science/missions/rst/spacecraft-illustrations/Roman_BeautyPass2026-med.png}"
+
+# Bottom-right cell: static fallback image (used only if the live
+# tracker below is disabled or fails to start).
 TRACKER_IMAGE="${TRACKER_IMAGE:-tracker.jpg}"
-TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://assets.science.nasa.gov/dynamicimage/assets/science/missions/rst/spacecraft-illustrations/RST_Beauty_S2_4K_60_ProRes.00422_print.jpg}"
+TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://eol.jsc.nasa.gov/esrs/hdev/media/EHDC6Location.jpg}"
+
+#############################################
+# LIVE TRACKER (screen-capture of NASA Eyes app)
+#
+# The bottom-right grid cell can instead show a
+# real-time screen recording of the NASA "Eyes on
+# the Solar System" app tracking the Roman Space
+# Telescope. That app is a client-side WebGL/JS
+# 3D scene — there is no static image/video URL
+# for it, so it must be *rendered* by an actual
+# browser and then screen-captured.
+#
+# Pipeline: Xvfb (virtual display) -> Chromium via
+# Playwright (renders the Eyes app into that
+# display) -> ffmpeg x11grab (captures the display)
+# -> local UDP multicast stream. Each per-video
+# ffmpeg process then just reads that multicast
+# address as a normal live input (same idea as the
+# ISS video on input 0), so the tracker keeps
+# playing continuously across video changes.
+#
+# Requires, in the CI image, before this script runs:
+#   apt-get update && apt-get install -y xvfb
+#   npm i playwright
+#   npx playwright install --with-deps chromium
+#
+# WARNING: Chromium + Xvfb + a second continuous
+# ffmpeg capture running alongside the main stream
+# encode is real load on a 2-core runner. Watch the
+# main ffmpeg's speed=/dup= stats after enabling
+# this; lower TRACKER_FPS or set
+# ENABLE_LIVE_TRACKER_VIDEO=false (falls back to the
+# static TRACKER_IMAGE_URL above) if the stream
+# falls behind.
+#############################################
+ENABLE_LIVE_TRACKER_VIDEO="${ENABLE_LIVE_TRACKER_VIDEO:-true}"
+TRACKER_LIVE_URL="${TRACKER_LIVE_URL:-https://eyes.nasa.gov/apps/solar-system/#/sc_roman_space_telescope}"
+TRACKER_DISPLAY=":99"
+TRACKER_FPS=5                      # low fps — it's a slow-moving 3D scene, not action video
+TRACKER_STREAM_ADDR="udp://239.5.5.5:12350?pkt_size=1316"   # local multicast, survives per-video ffmpeg restarts
+TRACKER_UDP_TIMEOUT_US=5000000     # 5s — how long the main ffmpeg waits for tracker packets before giving up
+XVFB_PID=""
+CHROMIUM_PID=""
+TRACKER_CAPTURE_PID=""
 
 #############################################
 # Up-next bumper (shown between videos)
@@ -214,9 +261,9 @@ fi
 
 #############################################
 # Fetch (or generate a placeholder for) each
-# grid image once at startup. These are used
-# as ffmpeg inputs on every video, so each one
-# must resolve to a real, valid image file.
+# static grid image once at startup. These are
+# used as ffmpeg inputs on every video, so each
+# one must resolve to a real, valid image file.
 #############################################
 fetch_grid_image() {
     local url="$1" dest="$2" label="$3"
@@ -239,18 +286,20 @@ fetch_grid_image() {
 
 fetch_grid_image "$LAUNCH_IMAGE_URL" "$LAUNCH_IMAGE" "Launch Site"
 fetch_grid_image "$TELESCOPE_IMAGE_URL" "$TELESCOPE_IMAGE" "Telescope"
-fetch_grid_image "$TRACKER_IMAGE_URL" "$TRACKER_IMAGE" "ISS Tracker"
+if [ "$ENABLE_LIVE_TRACKER_VIDEO" != true ]; then
+    fetch_grid_image "$TRACKER_IMAGE_URL" "$TRACKER_IMAGE" "ISS Tracker"
+fi
 
 #############################################
-# Pre-resize each grid image ONCE at startup
-# to its target cell size. Without this, the
-# per-frame filter graph would re-run scale/crop
-# on the original source (which can be a huge
-# multi-megapixel NASA photo) 30 times a second,
-# which is catastrophically slow on a 2-core
-# runner and causes the stream to fall behind
-# real-time (rising "dup" count, speed << 1x,
-# eventual RTMP disconnect). The main filter
+# Pre-resize each static grid image ONCE at
+# startup to its target cell size. Without this,
+# the per-frame filter graph would re-run
+# scale/crop on the original source (which can be
+# a huge multi-megapixel NASA photo) 30 times a
+# second, which is catastrophically slow on a
+# 2-core runner and causes the stream to fall
+# behind real-time (rising "dup" count, speed <<
+# 1x, eventual RTMP disconnect). The main filter
 # graph still applies scale+crop for safety, but
 # on an already-small image that's nearly free.
 #############################################
@@ -269,8 +318,109 @@ TELESCOPE_IMAGE_GRID="$ASSET_DIR/telescope_grid.jpg"
 TRACKER_IMAGE_GRID="$ASSET_DIR/tracker_grid.jpg"
 resize_grid_image "$LAUNCH_IMAGE" "$LAUNCH_IMAGE_GRID" "$CELL_W" "$CELL_H"
 resize_grid_image "$TELESCOPE_IMAGE" "$TELESCOPE_IMAGE_GRID" "$CELL_W2" "$CELL_H"
-resize_grid_image "$TRACKER_IMAGE" "$TRACKER_IMAGE_GRID" "$CELL_W2" "$CELL_H"
+if [ "$ENABLE_LIVE_TRACKER_VIDEO" != true ]; then
+    resize_grid_image "$TRACKER_IMAGE" "$TRACKER_IMAGE_GRID" "$CELL_W2" "$CELL_H"
+fi
 echo "Pre-resized grid images to cell size (${CELL_W}x${CELL_H} / ${CELL_W2}x${CELL_H})."
+
+#############################################
+# start_live_tracker(): boots Xvfb + Chromium
+# (pointed at the NASA Eyes app, window sized to
+# the tracker grid cell) + an ffmpeg x11grab that
+# broadcasts the captured display over local UDP
+# multicast. Runs for the lifetime of the whole
+# stream; each per-video ffmpeg process just reads
+# TRACKER_STREAM_ADDR as a normal live input (like
+# the ISS video on input 0).
+#
+# Self-healing: the capture ffmpeg restarts itself
+# on exit, and the Chromium launcher script
+# relaunches the browser if the tab/browser
+# crashes, so a transient failure doesn't leave the
+# tracker cell frozen or hang the whole grid.
+#############################################
+start_live_tracker() {
+    if ! command -v Xvfb >/dev/null 2>&1; then
+        echo "ERROR: Xvfb not installed — cannot run live tracker. Falling back to static tracker image."
+        ENABLE_LIVE_TRACKER_VIDEO=false
+        return 1
+    fi
+    if ! command -v npx >/dev/null 2>&1; then
+        echo "ERROR: npx/playwright not installed — cannot run live tracker. Falling back to static tracker image."
+        ENABLE_LIVE_TRACKER_VIDEO=false
+        return 1
+    fi
+
+    echo "Starting Xvfb on display ${TRACKER_DISPLAY} at ${CELL_W2}x${CELL_H}..."
+    Xvfb "$TRACKER_DISPLAY" -screen 0 "${CELL_W2}x${CELL_H}x24" -nolisten tcp &
+    XVFB_PID=$!
+    sleep 1
+    if ! kill -0 "$XVFB_PID" 2>/dev/null; then
+        echo "ERROR: Xvfb failed to start. Falling back to static tracker image."
+        ENABLE_LIVE_TRACKER_VIDEO=false
+        return 1
+    fi
+
+    cat > "$ASSET_DIR/tracker_launch.js" <<EOF
+const { chromium } = require('playwright');
+(async () => {
+  for (;;) {
+    try {
+      const browser = await chromium.launch({
+        headless: false,
+        args: ['--window-size=${CELL_W2},${CELL_H}', '--window-position=0,0', '--disable-gpu-sandbox']
+      });
+      const page = await browser.newPage({ viewport: { width: ${CELL_W2}, height: ${CELL_H} } });
+      await page.goto('${TRACKER_LIVE_URL}', { waitUntil: 'networkidle', timeout: 45000 });
+      // keep the process (and browser window) alive; if the tab crashes
+      // or the browser closes, fall through and relaunch.
+      await new Promise((resolve) => { browser.on('disconnected', resolve); });
+      console.error('Chromium disconnected — relaunching.');
+    } catch (e) {
+      console.error('Tracker page error, retrying in 5s:', e.message);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+})();
+EOF
+
+    DISPLAY="$TRACKER_DISPLAY" npx playwright node "$ASSET_DIR/tracker_launch.js" \
+        > "$ASSET_DIR/tracker_chromium.log" 2>&1 &
+    CHROMIUM_PID=$!
+    echo "Waiting for the Eyes app to render before starting capture..."
+    sleep 12
+
+    (
+        while true; do
+            echo "Starting tracker screen capture -> ${TRACKER_STREAM_ADDR}"
+            ffmpeg -y \
+                -f x11grab -video_size "${CELL_W2}x${CELL_H}" -framerate "$TRACKER_FPS" \
+                -i "${TRACKER_DISPLAY}.0" \
+                -c:v libx264 -preset ultrafast -tune zerolatency \
+                -pix_fmt yuv420p -b:v 500k -maxrate 500k -bufsize 1000k \
+                -g $((TRACKER_FPS * 2)) \
+                -f mpegts "$TRACKER_STREAM_ADDR" \
+                -loglevel warning
+            echo "WARNING: tracker capture ffmpeg exited — restarting in 3s."
+            sleep 3
+        done
+    ) &
+    TRACKER_CAPTURE_PID=$!
+
+    echo "Live tracker pipeline started (Xvfb=$XVFB_PID, chromium=$CHROMIUM_PID, capture=$TRACKER_CAPTURE_PID)."
+}
+
+if [ "$ENABLE_LIVE_TRACKER_VIDEO" = true ]; then
+    start_live_tracker
+fi
+
+# Per-video ffmpeg input args for the tracker cell (input index 5):
+# either the live multicast feed, or the static pre-resized fallback
+# image, decided once here so run_video() doesn't need to branch.
+TRACKER_INPUT_ARGS=(-loop 1 -i "$TRACKER_IMAGE_GRID")
+if [ "$ENABLE_LIVE_TRACKER_VIDEO" = true ]; then
+    TRACKER_INPUT_ARGS=(-fflags nobuffer -timeout "$TRACKER_UDP_TIMEOUT_US" -i "$TRACKER_STREAM_ADDR")
+fi
 
 #############################################
 # Background clock writer (avoids fragile
@@ -397,7 +547,7 @@ if [ "$SHOW_STATS" = true ]; then
     VIEWERS_PID=$!
 fi
 
-trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null || true; [ -n "$SUBS_PID" ] && kill "$SUBS_PID" 2>/dev/null || true; [ -n "$VIEWERS_PID" ] && kill "$VIEWERS_PID" 2>/dev/null || true' EXIT
+trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null || true; [ -n "$SUBS_PID" ] && kill "$SUBS_PID" 2>/dev/null || true; [ -n "$VIEWERS_PID" ] && kill "$VIEWERS_PID" 2>/dev/null || true; [ -n "${TRACKER_CAPTURE_PID:-}" ] && kill "$TRACKER_CAPTURE_PID" 2>/dev/null || true; [ -n "${CHROMIUM_PID:-}" ] && kill "$CHROMIUM_PID" 2>/dev/null || true; [ -n "${XVFB_PID:-}" ] && kill "$XVFB_PID" 2>/dev/null || true' EXIT
 
 #############################################
 # Static panel text (unchanged across videos)
@@ -789,12 +939,19 @@ prepare_video_content() {
     #   top-left     = launch site image      (input 3, LAUNCH_IMAGE)
     #   top-right    = telescope image + countdown (input 4, TELESCOPE_IMAGE)
     #   bottom-left  = ISS live video          (input 0)
-    #   bottom-right = ISS tracker image       (input 5, TRACKER_IMAGE)
+    #   bottom-right = live tracker screen-capture, or static fallback
+    #                  image (input 5)
     CHAIN="color=c=black:s=1280x720[canvas];"
     CHAIN+="[0:v]fps=30,scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_iss];"
     CHAIN+="[3:v]scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_launch];"
     CHAIN+="[4:v]scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_telescope];"
-    CHAIN+="[5:v]scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_tracker];"
+    if [ "$ENABLE_LIVE_TRACKER_VIDEO" = true ]; then
+        # input 5 is a live multicast video feed here, not a single still
+        # frame — cap it to TRACKER_FPS to match the capture side.
+        CHAIN+="[5:v]fps=${TRACKER_FPS},scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_tracker];"
+    else
+        CHAIN+="[5:v]scale=${CELL_W2}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W2}:${CELL_H}[q_tracker];"
+    fi
     CHAIN+="[canvas][q_launch]overlay=x=${GRID_X}:y=0[g1];"
     CHAIN+="[g1][q_telescope]overlay=x=${GRID_X2}:y=0[g2];"
     CHAIN+="[g2][q_iss]overlay=x=${GRID_X}:y=${CELL_H}[g3];"
@@ -807,7 +964,12 @@ prepare_video_content() {
     CHAIN+="[g7]drawtext=fontfile=${FONT}:text='ROMAN SPACE TELESCOPE':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=10:${SHADOW}[g8];"
     CHAIN+="[g8]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/countdown.txt:reload=1:fontcolor=${GOLD}:fontsize=20:x=${GRID_X2}+10:y=30:${SHADOW}[g9];"
     CHAIN+="[g9]drawtext=fontfile=${FONT}:text='LIVE FROM ISS':fontcolor=white:fontsize=13:x=${GRID_X}+10:y=$((CELL_H + 10)):${SHADOW}[g10];"
-    CHAIN+="[g10]drawtext=fontfile=${FONT}:text='ISS TRACKER':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=$((CELL_H + 10)):${SHADOW}[g11];"
+    if [ "$ENABLE_LIVE_TRACKER_VIDEO" = true ]; then
+        CHAIN+="[g10]drawtext=fontfile=${FONT}:text='LIVE TRACKER':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=$((CELL_H + 10)):${SHADOW}[g10b];"
+        CHAIN+="[g10b]drawbox=x=${GRID_X2}+95:y=$((CELL_H + 8)):w=9:h=9:color=${RED}:t=fill:enable='lt(mod(t\,1)\,0.6)'[g11];"
+    else
+        CHAIN+="[g10]drawtext=fontfile=${FONT}:text='ISS TRACKER':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=$((CELL_H + 10)):${SHADOW}[g11];"
+    fi
     CHAIN+="[1:v]scale=1280:720:flags=fast_bilinear[ovl];"
     CHAIN+="[g11][ovl]overlay=0:0[base];"
 
@@ -1080,12 +1242,13 @@ run_video() {
     local filter
     filter=$(build_final_filter "$duration")
 
-    # Audio mapping: with AUDIO_URL configured, input index 3 is the
+    # Audio mapping: with AUDIO_URL configured, input index 6 is the
     # looping background-audio playlist and it replaces the video's own
     # audio as the stream's audio track. Without AUDIO_URL, behavior is
     # unchanged (video's own audio, if any).
     # Input order in run_video(): 0=video 1=overlay.png 2=dot_marker
-    # 3=LAUNCH_IMAGE 4=TELESCOPE_IMAGE 5=TRACKER_IMAGE [6=audio playlist]
+    # 3=LAUNCH_IMAGE 4=TELESCOPE_IMAGE 5=tracker (live multicast or
+    # static image) [6=audio playlist, if enabled]
     local audio_map="0:a?"
     if [ "$ENABLE_AUDIO" = true ]; then
         audio_map="6:a"
@@ -1110,7 +1273,7 @@ run_video() {
         -loop 1 -i "$DOT_MARKER" \
         -loop 1 -i "$LAUNCH_IMAGE_GRID" \
         -loop 1 -i "$TELESCOPE_IMAGE_GRID" \
-        -loop 1 -i "$TRACKER_IMAGE_GRID" \
+        "${TRACKER_INPUT_ARGS[@]}" \
         "${AUDIO_INPUT_ARGS[@]}" \
         -filter_complex "$filter" \
         -map "[final]" \
