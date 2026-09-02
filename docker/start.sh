@@ -139,6 +139,28 @@ ENABLE_LIVE_TRACKER_VIDEO="${ENABLE_LIVE_TRACKER_VIDEO:-true}"
 TRACKER_LIVE_URL="${TRACKER_LIVE_URL:-https://eyes.nasa.gov/apps/solar-system/#/sc_roman_space_telescope}"
 TRACKER_DISPLAY=":99"
 TRACKER_FPS=5                      # low fps — it's a slow-moving 3D scene, not action video
+
+# The Eyes app renders a persistent left sidebar (search + breadcrumb
+# nav) as part of its normal desktop layout — this is the SITE'S OWN
+# UI, not Chromium's browser chrome, so --kiosk mode has no effect on
+# it. Rather than guess at fragile JS to click it closed, render the
+# page at a normal desktop size (where its layout is predictable) and
+# capture only a cropped sub-region containing the 3D canvas, skipping
+# the sidebar/header/title-card chrome entirely.
+#
+# TRACKER_CROP_X/Y/W/H are ESTIMATES based on typical layout
+# proportions — they will very likely need one round of tuning. After
+# a run, pull panel_assets/tracker_debug.png off the container (it's
+# a full TRACKER_RENDER_W x TRACKER_RENDER_H screenshot of exactly
+# what Chromium rendered) and adjust these numbers to match where the
+# sidebar/header/footer actually end and the clean 3D scene begins.
+TRACKER_RENDER_W=1280
+TRACKER_RENDER_H=800
+TRACKER_CROP_X=380     # skip the left sidebar (search/breadcrumb panel)
+TRACKER_CROP_Y=70      # skip the top NASA/Eyes header bar
+TRACKER_CROP_BOTTOM=160  # skip the bottom title card ("Nancy Grace Roman..." + icons)
+TRACKER_CROP_W=$((TRACKER_RENDER_W - TRACKER_CROP_X))
+TRACKER_CROP_H=$((TRACKER_RENDER_H - TRACKER_CROP_Y - TRACKER_CROP_BOTTOM))
 TRACKER_STREAM_ADDR="udp://239.5.5.5:12350?pkt_size=1316"   # local multicast, survives per-video ffmpeg restarts
 TRACKER_UDP_TIMEOUT_US=5000000     # 5s — how long the main ffmpeg waits for tracker packets before giving up
 XVFB_PID=""
@@ -351,8 +373,8 @@ start_live_tracker() {
         return 1
     fi
 
-    echo "Starting Xvfb on display ${TRACKER_DISPLAY} at ${CELL_W2}x${CELL_H}..."
-    Xvfb "$TRACKER_DISPLAY" -screen 0 "${CELL_W2}x${CELL_H}x24" -nolisten tcp &
+    echo "Starting Xvfb on display ${TRACKER_DISPLAY} at ${TRACKER_RENDER_W}x${TRACKER_RENDER_H} (full desktop layout; will crop to canvas at capture time)..."
+    Xvfb "$TRACKER_DISPLAY" -screen 0 "${TRACKER_RENDER_W}x${TRACKER_RENDER_H}x24" -nolisten tcp &
     XVFB_PID=$!
     sleep 1
     if ! kill -0 "$XVFB_PID" 2>/dev/null; then
@@ -369,10 +391,13 @@ const { chromium } = require('playwright');
       const browser = await chromium.launch({
         headless: false,
         args: [
-          // --kiosk removes Chromium's own tab strip / address bar so the
-          // captured frame is only the page content, not browser chrome.
+          // --kiosk removes Chromium's OWN tab strip / address bar. Note
+          // this does NOT touch the Eyes app's own on-page sidebar/header —
+          // that's the site's own UI, not browser chrome, and has to be
+          // handled separately (see the crop at capture time, plus the
+          // best-effort collapse-click below).
           '--kiosk',
-          '--window-size=${CELL_W2},${CELL_H}',
+          '--window-size=${TRACKER_RENDER_W},${TRACKER_RENDER_H}',
           '--window-position=0,0',
           '--noerrdialogs',
           '--disable-infobars',
@@ -388,7 +413,11 @@ const { chromium } = require('playwright');
           '--enable-unsafe-swiftshader'
         ]
       });
-      const page = await browser.newPage({ viewport: { width: ${CELL_W2}, height: ${CELL_H} } });
+      // Render at full desktop size so the app uses its normal desktop
+      // layout (predictable sidebar/header/canvas positions), instead of
+      // squeezing that same layout into the tiny grid-cell size, which is
+      // what caused the sidebar to dominate the frame before.
+      const page = await browser.newPage({ viewport: { width: ${TRACKER_RENDER_W}, height: ${TRACKER_RENDER_H} } });
       await page.goto('${TRACKER_LIVE_URL}', { waitUntil: 'domcontentloaded', timeout: 45000 });
 
       // This SPA's router can finish applying the URL hash after its own
@@ -408,13 +437,24 @@ const { chromium } = require('playwright');
         console.error('WARNING: canvas never appeared — capturing whatever state exists.');
       });
 
+      // Best-effort: try to collapse the left sidebar via its visible "«"
+      // toggle, in case that shrinks/removes it and makes the crop below
+      // less critical. Not load-bearing — the crop is the real fix, this
+      // is just a bonus if the selector happens to match.
+      await page.click('text=«', { timeout: 3000 }).catch(() => {
+        console.error('NOTICE: sidebar collapse toggle not found/clickable — relying on crop instead.');
+      });
+
       // Canvas existing != textures/model finished loading. Give the scene
       // more time to actually paint before the capture side starts.
       await page.waitForTimeout(8000);
 
-      // Debug aid: save what actually rendered so it can be inspected
-      // without waiting on the full video pipeline. Overwritten on every
-      // (re)launch, so it always reflects the current attempt.
+      // Debug aid: save the FULL (uncropped) render so the crop box below
+      // can be measured/tuned against it. This screenshot is exactly
+      // TRACKER_RENDER_W x TRACKER_RENDER_H — the same coordinate space as
+      // TRACKER_CROP_X/Y/W/H — so pixel positions line up directly.
+      // Overwritten on every (re)launch, so it always reflects the latest
+      // attempt.
       await page.screenshot({ path: '${ASSET_DIR}/tracker_debug.png' }).catch(() => {});
 
       // keep the process (and browser window) alive; if the tab crashes
