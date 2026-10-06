@@ -23,10 +23,10 @@ if [ -z "${YOUTUBE_API_KEY:-}" ] || [ -z "${YOUTUBE_CHANNEL_ID:-}" ]; then
 fi
 
 echo "========================================"
-echo "Starting 24/7 YouTube Stream (Documentary Overlay)"
+echo "Starting 24/7 YouTube Stream (Crew-12 Return Overlay)"
 echo "Output Resolution : 1280x720 (720p — sized for a 2-core CI runner)"
 echo "FPS               : 30"
-echo "SCRIPT VERSION    : grid-v3 (2x2 launch/telescope/iss/tracker + perf fixes)"
+echo "SCRIPT VERSION    : crew12-return-v1 (2x2 splashdown/dragon/iss/tracker)"
 echo "========================================"
 
 FONT="font.ttf"
@@ -61,11 +61,11 @@ SUB_ICON_R=20
 # 2x2 content grid (right of the info panel)
 #
 #   +-------------------+-------------------+
-#   |   LAUNCH SITE      |   TELESCOPE +     |
-#   |   (LAUNCH_IMAGE)    |   COUNTDOWN       |
+#   |  SPLASHDOWN ZONE   |  CREW DRAGON +    |
+#   |  (LAUNCH_IMAGE)     |  UNDOCK COUNTDOWN |
 #   +-------------------+-------------------+
-#   |   ISS LIVE VIDEO   |   ISS TRACKER     |
-#   |   (input 0)         |   (TRACKER_IMAGE)|
+#   |  ISS LIVE VIDEO    |  DRAGON TRACKER   |
+#   |  (input 0)          |  (TRACKER_IMAGE) |
 #   +-------------------+-------------------+
 #
 # The grid starts right where the info panel's
@@ -80,23 +80,28 @@ CELL_H=360
 GRID_X=$PANEL_RIGHT_EDGE
 GRID_X2=$((GRID_X + CELL_W))
 
-# Countdown target for the launch cell (top-right), e.g.:
-#   LAUNCH_DATE="2026-08-30 06:20:00"
+# Countdown target for the top-right cell, e.g.:
+#   UNDOCK_DATE="2026-10-20 14:05:00"
 # Interpreted as UTC. If unset/unparseable, the countdown just shows
-# "TBD" instead of breaking the stream.
-LAUNCH_DATE="${LAUNCH_DATE:-Aug 30, 2026 11:26 UTC}"
+# "TBD" instead of breaking the stream. Once the time passes it shows
+# "UNDOCKED".
+UNDOCK_DATE="${UNDOCK_DATE:-}"
 
-# Static images for the launch-site / telescope / tracker cells. Each
-# can be a local file already sitting next to this script, or a URL to
-# download once at startup (set the matching *_URL var). If neither is
-# usable, a plain placeholder image is generated so ffmpeg always has
-# a valid input and the stream never crashes on a missing file.
-LAUNCH_IMAGE="${LAUNCH_IMAGE:-launch.jpg}"
-LAUNCH_IMAGE_URL="${LAUNCH_IMAGE_URL:-https://images-assets.nasa.gov/image/NHQ20260830_admin_0002/NHQ20260830_admin_0002~large.jpg}"
-TELESCOPE_IMAGE="${TELESCOPE_IMAGE:-telescope.jpg}"
-TELESCOPE_IMAGE_URL="${TELESCOPE_IMAGE_URL:-https://assets.science.nasa.gov/dynamicimage/assets/science/missions/rst/spacecraft-illustrations/Roman_BeautyPass2026-med.png}"
+# Static images for the three image cells. Variable names are kept from
+# the previous version so the rest of the script doesn't change:
+#   LAUNCH_*    -> top-left     = splashdown zone / recovery ship
+#   TELESCOPE_* -> top-right    = Crew Dragon (+ undocking countdown)
+#   TRACKER_*   -> bottom-right = ISS / Dragon tracker
+# Each can be a local file already sitting next to this script, or a URL
+# to download once at startup (set the matching *_URL var). If neither
+# is usable, a plain labelled placeholder image is generated so ffmpeg
+# always has a valid input and the stream never crashes on a missing file.
+LAUNCH_IMAGE="${LAUNCH_IMAGE:-splashdown.jpg}"
+LAUNCH_IMAGE_URL="${LAUNCH_IMAGE_URL:-https://github.com/Gopu09934/NASA-event_romen_telescope/releases/download/s/crew-12-undocking-key-art-r1-horizontal-program-tile-16-9-without-title.jpg}"
+TELESCOPE_IMAGE="${TELESCOPE_IMAGE:-dragon.jpg}"
+TELESCOPE_IMAGE_URL="${TELESCOPE_IMAGE_URL:-https://github.com/Gopu09934/NASA-event_romen_telescope/releases/download/s/iss075e0157531.large.jpg}"
 TRACKER_IMAGE="${TRACKER_IMAGE:-tracker.jpg}"
-TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://assets.science.nasa.gov/dynamicimage/assets/science/missions/rst/spacecraft-illustrations/RST_Beauty_S2_4K_60_ProRes.00422_print.jpg}"
+TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://github.com/Gopu09934/NASA-event_romen_telescope/releases/download/s/iss075e0159320.large.jpg}"
 
 #############################################
 # Up-next bumper (shown between videos)
@@ -104,26 +109,11 @@ TRACKER_IMAGE_URL="${TRACKER_IMAGE_URL:-https://assets.science.nasa.gov/dynamici
 ENABLE_BUMPER=false
 BUMPER_DURATION=5   # seconds
 BUMPER_MESSAGES=(
-    "Explore the universe with NASA's Nancy Grace Roman Space Telescope.",
-    "Discover distant galaxies across the vast cosmic web.",
-    "Journey through deep space with Roman's powerful surveys.",
-    "Explore the mysteries of dark energy shaping our universe.",
-    "Discover billions of distant stars across the Milky Way.",
-    "Search for new worlds beyond our solar system.",
-    "Explore distant galaxies and trace the history of cosmic evolution.",
-    "Uncover the hidden universe with Roman's wide-field vision.",
-    "Discover distant exoplanets through gravitational microlensing.",
-    "Explore the cosmos across billions of light-years.",
-    "Witness the universe on an enormous cosmic scale.",
-    "Discover ancient galaxies and the light they carry across time.",
-    "Explore the invisible forces driving the expansion of the universe.",
-    "Search the galaxy for distant worlds and planetary systems.",
-    "Discover how galaxies and cosmic structures evolve over time.",
-    "Explore dark energy, exoplanets, and the distant universe.",
-    "Journey across the cosmos with NASA's Roman Space Telescope.",
-    "Discover stars, galaxies, and worlds hidden across deep space.",
-    "Explore the cosmic history written across billions of years.",
-    "Uncover new mysteries of the universe with Roman."
+    "Follow NASA's SpaceX Crew-12 on the journey home from the ISS.",
+    "Watch Crew Dragon undock from the International Space Station.",
+    "Track Dragon's path from orbit to the Pacific splashdown zone.",
+    "Crew-12 is returning to Earth after months aboard the station.",
+    "Live coverage of the Crew-12 return to Earth."
 )
 
 #############################################
@@ -237,8 +227,8 @@ fetch_grid_image() {
     fi
 }
 
-fetch_grid_image "$LAUNCH_IMAGE_URL" "$LAUNCH_IMAGE" "Launch Site"
-fetch_grid_image "$TELESCOPE_IMAGE_URL" "$TELESCOPE_IMAGE" "Telescope"
+fetch_grid_image "$LAUNCH_IMAGE_URL" "$LAUNCH_IMAGE" "Splashdown Zone"
+fetch_grid_image "$TELESCOPE_IMAGE_URL" "$TELESCOPE_IMAGE" "Crew Dragon"
 fetch_grid_image "$TRACKER_IMAGE_URL" "$TRACKER_IMAGE" "ISS Tracker"
 
 #############################################
@@ -287,16 +277,16 @@ date -u +'%d %b %Y  •  %H:%M:%S UTC' > "$ASSET_DIR/clock.txt"
 CLOCK_PID=$!
 
 #############################################
-# Background countdown writer for the launch
+# Background countdown writer for the undocking
 # cell (top-right of the grid). Recomputes the
-# remaining time every second from LAUNCH_DATE.
+# remaining time every second from UNDOCK_DATE.
 #############################################
 printf 'TBD' > "$ASSET_DIR/countdown.txt"
 (
     while true; do
         VALUE="TBD"
-        if [ -n "$LAUNCH_DATE" ]; then
-            TARGET_EPOCH=$(date -u -d "$LAUNCH_DATE" +%s 2>/dev/null || echo "")
+        if [ -n "$UNDOCK_DATE" ]; then
+            TARGET_EPOCH=$(date -u -d "$UNDOCK_DATE" +%s 2>/dev/null || echo "")
             if [ -n "$TARGET_EPOCH" ]; then
                 NOW_EPOCH=$(date -u +%s)
                 REMAIN=$((TARGET_EPOCH - NOW_EPOCH))
@@ -307,7 +297,7 @@ printf 'TBD' > "$ASSET_DIR/countdown.txt"
                     S=$((REMAIN % 60))
                     VALUE=$(printf '%dd %02dh %02dm %02ds' "$D" "$H" "$M" "$S")
                 else
-                    VALUE="LAUNCHED"
+                    VALUE="UNDOCKED"
                 fi
             fi
         fi
@@ -402,12 +392,12 @@ trap 'kill "$CLOCK_PID" 2>/dev/null || true; kill "$COUNTDOWN_PID" 2>/dev/null |
 #############################################
 # Static panel text (unchanged across videos)
 #############################################
-printf 'ROMAN  LIVE'                                      > "$ASSET_DIR/title1.txt"
-printf 'U N I V E R S E   E X P L O R A T I O N'         > "$ASSET_DIR/title2.txt"
-printf 'N A S A   R O M A N   T E L E S C O P E' > "$ASSET_DIR/header.txt"
-printf 'NANCY GRACE ROMAN SPACE TELESCOPE'                 > "$ASSET_DIR/eyebrow.txt"
-printf 'SUBSCRIBE for more space & science LIVE'           > "$ASSET_DIR/cta.txt"
-printf 'DID YOU KNOW?'                                     > "$ASSET_DIR/fact_label.txt"
+printf 'CREW-12  RETURN'                                  > "$ASSET_DIR/title1.txt"
+printf 'D R A G O N   U N D O C K I N G'                  > "$ASSET_DIR/title2.txt"
+printf 'N A S A   S P A C E X   C R E W - 1 2'            > "$ASSET_DIR/header.txt"
+printf 'RETURN TO EARTH  •  LIVE TRACKER'                 > "$ASSET_DIR/eyebrow.txt"
+printf 'SUBSCRIBE for more space & science LIVE'          > "$ASSET_DIR/cta.txt"
+printf 'DID YOU KNOW?'                                    > "$ASSET_DIR/fact_label.txt"
 
 #############################################
 # Default headline / fact pools (used as a
@@ -415,55 +405,37 @@ printf 'DID YOU KNOW?'                                     > "$ASSET_DIR/fact_la
 # are missing or empty)
 #############################################
 DEFAULT_HEADLINES=(
-    "NASA's Nancy Grace Roman Space Telescope will investigate some of the universe's biggest mysteries.",
-    "Roman will help scientists study dark energy and understand how the universe is expanding.",
-    "The Roman Space Telescope is designed to survey enormous regions of the sky.",
-    "Roman will search for distant exoplanets and help reveal the diversity of worlds beyond our solar system.",
-    "Roman's wide-field vision will capture vast cosmic landscapes in remarkable detail.",
-    "The mission will study billions of galaxies to investigate how the universe has evolved.",
-    "Roman will help scientists map the distribution of galaxies and dark matter across cosmic time.",
-    "The telescope will investigate how dark energy has influenced the expansion of the universe.",
-    "Roman will use gravitational microlensing to search for planets far beyond our solar system.",
-    "The observatory will combine wide surveys with powerful infrared observations of the cosmos.",
-    "Roman will explore stellar populations and planetary systems throughout the Milky Way.",
-    "Scientists will use Roman's observations to investigate the history and structure of the universe.",
-    "The telescope's wide field of view will allow it to survey the sky much faster than many previous space telescopes.",
-    "Roman will help connect the study of distant galaxies with the evolution of the cosmic web.",
-    "Every Roman survey could reveal unexpected objects and new clues about our universe."
+    "NASA's SpaceX Crew-12 is preparing to return to Earth from the International Space Station.",
+    "Crew Dragon will undock from the station and begin its journey home.",
+    "Crew-12 is expected to splash down off the coast of California.",
+    "Aboard are NASA astronauts Jessica Meir and Jack Hathaway.",
+    "ESA astronaut Sophie Adenot returns with Crew-12.",
+    "Roscosmos cosmonaut Andrey Fedyaev completes the crew of four.",
+    "After undocking, Dragon performs a deorbit burn to leave orbit.",
+    "Parachutes will slow Dragon for a gentle ocean splashdown.",
+    "SpaceX recovery teams will meet the capsule on the water.",
+    "Weather and sea conditions at the splashdown zone can shift the schedule.",
+    "Crew-12 is handing the station over to the crew that remains aboard.",
+    "Follow Dragon's path home on the live tracker."
 )
 
 DEFAULT_FACTS=(
-    "NASA's Nancy Grace Roman Space Telescope is designed to investigate dark energy, exoplanets and astrophysics.",
-    "Roman will have a field of view much larger than that of the Hubble Space Telescope.",
-    "Roman's wide-field instrument will allow scientists to survey enormous areas of the sky.",
-    "The telescope will observe the universe primarily in infrared and near-infrared wavelengths.",
-    "Roman will help scientists investigate why the expansion of the universe is accelerating.",
-    "Dark energy is one of the biggest mysteries in modern cosmology, and Roman is designed to study it.",
-    "Roman will create large surveys containing observations of billions of cosmic objects.",
-    "The telescope will study distant galaxies to investigate how the universe has evolved over billions of years.",
-    "Roman will use gravitational microlensing to search for planets beyond our solar system.",
-    "Microlensing can reveal planets that are difficult to detect using other planet-hunting techniques.",
-    "Roman could help discover thousands of exoplanets through its microlensing survey.",
-    "The telescope will investigate planetary systems throughout the Milky Way galaxy.",
-    "Roman will study how galaxies are distributed across the universe and how their structures have changed over time.",
-    "Scientists will use Roman observations to create detailed maps of dark matter across large regions of the cosmos.",
-    "Roman's observations will help scientists understand the relationship between dark matter and galaxies.",
-    "The telescope will search for distant supernovae that can be used to study cosmic expansion.",
-    "Roman will help measure how the universe has changed across different periods of cosmic history.",
-    "Its wide field of view allows Roman to survey large areas of the sky efficiently.",
-    "Roman is named after Nancy Grace Roman, a pioneering NASA astronomer known as the 'Mother of Hubble'.",
-    "Nancy Grace Roman played a major role in establishing NASA's space astronomy program.",
-    "Roman will complement other major observatories by providing wide-field infrared observations of the universe.",
-    "The telescope is designed to survey the sky rather than focus exclusively on individual cosmic objects.",
-    "Roman's surveys could reveal previously unknown galaxies, stars, exoplanets and other astronomical objects.",
-    "Infrared observations allow astronomers to study objects whose light is obscured or shifted toward longer wavelengths.",
-    "Roman will investigate stellar populations in our galaxy and help scientists understand how stars form and evolve.",
-    "The telescope will study millions of stars toward the center of the Milky Way during its exoplanet survey.",
-    "Roman will help scientists explore the population of planets beyond the solar system.",
-    "The mission will provide a powerful combination of wide-field imaging and precise astronomical measurements.",
-    "Roman's data will be valuable to astronomers studying both nearby stars and the distant universe.",
-    "One of Roman's major goals is to understand the fundamental physics behind the accelerating expansion of the universe.",
-    "Roman's enormous cosmic surveys could uncover discoveries that scientists do not yet know to look for."
+    "Crew Dragon undocks from the ISS on its own, while flight controllers monitor every step.",
+    "The ISS travels at roughly 28,000 km/h, circling Earth about every 90 minutes.",
+    "The station orbits at an altitude of around 400 km.",
+    "Dragon fires its engines in a deorbit burn to drop out of orbit and begin re-entry.",
+    "During re-entry, Dragon's heat shield faces temperatures near 1,900 degrees Celsius.",
+    "Dragon uses drogue parachutes first, then main parachutes, to slow down before splashdown.",
+    "Under its main parachutes, Dragon touches down at roughly 24 km/h.",
+    "After splashdown, a SpaceX recovery ship hoists the capsule out of the water.",
+    "Dragon carries up to four crew members to and from the space station.",
+    "Jessica Meir took part in the first all-female spacewalk in 2019.",
+    "Andrey Fedyaev has flown to the ISS before, on Crew-6 in 2023.",
+    "Sophie Adenot is a European Space Agency astronaut from France.",
+    "Returning crews go through medical checks and readaptation to gravity after months in orbit.",
+    "Splashdown time and location are set close to undocking, based on weather and sea state.",
+    "Science samples often come home aboard Dragon along with the crew.",
+    "Crew rotation missions keep the ISS continuously staffed."
 )
 #############################################
 # build_labels_chain: optional feature — draws
@@ -786,10 +758,10 @@ prepare_video_content() {
     # Rebuild BASE_CHAIN for this video's content
     #########################################
     # 2x2 content grid to the right of the info panel:
-    #   top-left     = launch site image      (input 3, LAUNCH_IMAGE)
-    #   top-right    = telescope image + countdown (input 4, TELESCOPE_IMAGE)
+    #   top-left     = splashdown zone image   (input 3, LAUNCH_IMAGE)
+    #   top-right    = Crew Dragon image + undocking countdown (input 4, TELESCOPE_IMAGE)
     #   bottom-left  = ISS live video          (input 0)
-    #   bottom-right = ISS tracker image       (input 5, TRACKER_IMAGE)
+    #   bottom-right = Dragon / ISS tracker image (input 5, TRACKER_IMAGE)
     CHAIN="color=c=black:s=1280x720[canvas];"
     CHAIN+="[0:v]fps=30,scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_iss];"
     CHAIN+="[3:v]scale=${CELL_W}:${CELL_H}:force_original_aspect_ratio=increase,crop=${CELL_W}:${CELL_H}[q_launch];"
@@ -802,12 +774,12 @@ prepare_video_content() {
     # thin dividers so the four cells read as a grid
     CHAIN+="[g4]drawbox=x=${GRID_X}:y=$((CELL_H - 1)):w=${GRID_W}:h=2:color=black@0.7:t=fill[g5];"
     CHAIN+="[g5]drawbox=x=$((GRID_X2 - 1)):y=0:w=2:h=720:color=black@0.7:t=fill[g6];"
-    # small captions identifying each cell, plus the launch countdown
-    CHAIN+="[g6]drawtext=fontfile=${FONT}:text='LAUNCH SITE':fontcolor=white:fontsize=13:x=${GRID_X}+10:y=10:${SHADOW}[g7];"
-    CHAIN+="[g7]drawtext=fontfile=${FONT}:text='ROMAN SPACE TELESCOPE':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=10:${SHADOW}[g8];"
+    # small captions identifying each cell, plus the undocking countdown
+    CHAIN+="[g6]drawtext=fontfile=${FONT}:text='SPLASHDOWN ZONE':fontcolor=white:fontsize=13:x=${GRID_X}+10:y=10:${SHADOW}[g7];"
+    CHAIN+="[g7]drawtext=fontfile=${FONT}:text='DRAGON UNDOCKING IN':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=10:${SHADOW}[g8];"
     CHAIN+="[g8]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/countdown.txt:reload=1:fontcolor=${GOLD}:fontsize=20:x=${GRID_X2}+10:y=30:${SHADOW}[g9];"
     CHAIN+="[g9]drawtext=fontfile=${FONT}:text='LIVE FROM ISS':fontcolor=white:fontsize=13:x=${GRID_X}+10:y=$((CELL_H + 10)):${SHADOW}[g10];"
-    CHAIN+="[g10]drawtext=fontfile=${FONT}:text='ISS TRACKER':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=$((CELL_H + 10)):${SHADOW}[g11];"
+    CHAIN+="[g10]drawtext=fontfile=${FONT}:text='DRAGON LIVE TRACKER':fontcolor=white:fontsize=13:x=${GRID_X2}+10:y=$((CELL_H + 10)):${SHADOW}[g11];"
     CHAIN+="[1:v]scale=1280:720:flags=fast_bilinear[ovl];"
     CHAIN+="[g11][ovl]overlay=0:0[base];"
 
@@ -826,7 +798,7 @@ prepare_video_content() {
     CHAIN+="[p6]drawbox=x=27:y=28:w=11:h=11:color=${RED}:t=fill:enable='lt(mod(t\,1)\,0.6)'[p7];"
     CHAIN+="[p7]drawtext=fontfile=${FONT}:text='LIVE':fontcolor=white:fontsize=30:x=44:y=19[p8];"
 
-    CHAIN+="[p8]drawtext=fontfile=${FONT}:text='Credits\: NASA':fontcolor=white@0.85:fontsize=15:x=313-text_w:y=19[p9];"
+    CHAIN+="[p8]drawtext=fontfile=${FONT}:text='Credits\: NASA / SpaceX':fontcolor=white@0.85:fontsize=15:x=313-text_w:y=19[p9];"
     CHAIN+="[p9]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/clock.txt:reload=1:fontcolor=${GOLD}:fontsize=14:x=313-text_w:y=39[p10];"
     CHAIN+="[p10]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/subs.txt:reload=1:fontcolor=white@0.75:fontsize=13:x=313-text_w:y=57[p10b];"
     CHAIN+="[p10b]drawtext=fontfile=${FONT}:textfile=${ASSET_DIR}/viewers.txt:reload=1:fontcolor=white@0.75:fontsize=13:x=313-text_w:y=75[p10c];"
@@ -1080,7 +1052,7 @@ run_video() {
     local filter
     filter=$(build_final_filter "$duration")
 
-    # Audio mapping: with AUDIO_URL configured, input index 3 is the
+    # Audio mapping: with AUDIO_URL configured, input index 6 is the
     # looping background-audio playlist and it replaces the video's own
     # audio as the stream's audio track. Without AUDIO_URL, behavior is
     # unchanged (video's own audio, if any).
